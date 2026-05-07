@@ -161,13 +161,11 @@ export default function PostmanForm() {
 
     setVoiceSupported(getSpeechRecognitionCtor() !== null);
 
-    // Fire GPS once on mount, but only if context allows it and not in demo mode.
-    // In demo mode, skip auto-GPS so device location (e.g. Ghaziabad) doesn't
-    // appear instead of the Kerala scenario presets.
-    if (!autoLocateRanRef.current && secure && "geolocation" in navigator && !DEMO_MODE) {
-      autoLocateRanRef.current = true;
-      runGeolocation();
-    }
+    // Never auto-fire GPS on mount. The postman form always opens showing
+    // the demo preset buttons and a manual "Try GPS" option. This prevents
+    // the device's actual location (e.g. Ghaziabad) from silently overwriting
+    // the Kerala scenario on both localhost and production.
+    autoLocateRanRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
