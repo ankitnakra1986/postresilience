@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { encodeDigiPin } from "@/lib/digipin";
+import { encodeDigiPin, isValidDigiPin, formatDigiPin } from "@/lib/digipin";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Need = "food" | "medicine" | "cash" | "evacuation";
@@ -19,9 +19,9 @@ type VoiceState = "idle" | "listening" | "processing" | "error";
 const POSTMAN_KEY = "postresilience.postman.name";
 
 const NEED_OPTIONS: { value: Need; label: string; emoji: string }[] = [
-  { value: "food", label: "FOOD", emoji: "🍚" },
-  { value: "medicine", label: "MEDICINE", emoji: "💊" },
-  { value: "cash", label: "CASH", emoji: "💵" },
+  { value: "food",       label: "FOOD",       emoji: "🍚" },
+  { value: "medicine",   label: "MEDICINE",   emoji: "💊" },
+  { value: "cash",       label: "CASH",       emoji: "💵" },
   { value: "evacuation", label: "EVACUATION", emoji: "🚨" },
 ];
 
@@ -34,22 +34,19 @@ type Zone = {
 };
 
 const ZONES: Zone[] = [
-  { id: "irinjalakuda",    label: "Irinjalakuda",    district: "Thrissur",  lat: 10.345,  lng: 76.215 },
-  { id: "chalakudy",       label: "Chalakudy",       district: "Thrissur",  lat: 10.302,  lng: 76.336 },
-  { id: "north-thrissur",  label: "North Thrissur",  district: "Thrissur",  lat: 10.620,  lng: 76.220 },
-  { id: "east-thrissur",   label: "East Thrissur",   district: "Thrissur",  lat: 10.530,  lng: 76.380 },
+  { id: "irinjalakuda",    label: "Irinjalakuda",    district: "Thrissur",  lat: 10.345,  lng: 76.215  },
+  { id: "chalakudy",       label: "Chalakudy",       district: "Thrissur",  lat: 10.302,  lng: 76.336  },
+  { id: "north-thrissur",  label: "North Thrissur",  district: "Thrissur",  lat: 10.620,  lng: 76.220  },
+  { id: "east-thrissur",   label: "East Thrissur",   district: "Thrissur",  lat: 10.530,  lng: 76.380  },
   { id: "ernakulam-town",  label: "Ernakulam Town",  district: "Ernakulam", lat: 9.9816,  lng: 76.2998 },
-  { id: "aluva",           label: "Aluva",           district: "Ernakulam", lat: 10.108,  lng: 76.354 },
-  { id: "south-ernakulam", label: "South Ernakulam", district: "Ernakulam", lat: 9.890,   lng: 76.320 },
-  { id: "west-ernakulam",  label: "West Ernakulam",  district: "Ernakulam", lat: 10.025,  lng: 76.170 },
+  { id: "aluva",           label: "Aluva",           district: "Ernakulam", lat: 10.108,  lng: 76.354  },
+  { id: "south-ernakulam", label: "South Ernakulam", district: "Ernakulam", lat: 9.890,   lng: 76.320  },
+  { id: "west-ernakulam",  label: "West Ernakulam",  district: "Ernakulam", lat: 10.025,  lng: 76.170  },
 ];
 
-// Fallback Kerala coords (Ernakulam Town) — used if encodeDigiPin somehow
-// throws on the chosen zone. Within DIGIPIN bounds by construction.
 const FALLBACK_LAT = 9.9816;
 const FALLBACK_LNG = 76.2998;
 
-// Voice-chip colour palette per the brief: red=evac, orange=med/cash, green=food
 const NEED_CHIP_DARK: Record<Need, string> = {
   evacuation: "border-red-400/60 bg-red-500/20 text-red-100",
   medicine:   "border-orange-400/60 bg-orange-500/20 text-orange-100",
@@ -63,7 +60,7 @@ const NEED_CHIP_LIGHT: Record<Need, string> = {
   food:       "border-emerald-300 bg-emerald-50 text-emerald-700",
 };
 
-// ─── SpeechRecognition shim (lib.dom doesn't ship types yet) ─────────────────
+// ─── SpeechRecognition shim ───────────────────────────────────────────────────
 type SpeechResultEvent = {
   results: ArrayLike<ArrayLike<{ transcript: string }>>;
 };
@@ -91,8 +88,6 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-// Encode a zone to a DigiPin, falling back to a known-valid Kerala point if
-// the algorithm ever rejects the input. Keeps the demo from dead-ending.
 function safeEncode(lat: number, lng: number): {
   digipin: string;
   lat: number;
@@ -109,18 +104,31 @@ function safeEncode(lat: number, lng: number): {
   }
 }
 
+// Devanagari + romanized critical signal check.
+// Upgrades heuristic "medium" to "critical" when the server-side keyword list
+// (English/romanized only) can't match Devanagari speech output.
+function transcriptIsCritical(t: string): boolean {
+  const signals = [
+    "मर", "जान", "खतरा", "बचाओ", "फंसे", "फंसा", "डूब",
+    "पानी", "बाढ़", "बाढ", "इमरजेंसी", "मदद", "निकालो",
+    "संकट", "तुरंत", "आपदा",
+    "bachao", "bachaao", "khatra", "jaan", "doob", "paani",
+    "pani", "flood", "trapped", "rescue", "evacuation", "emergency",
+    "dying", "danger", "stranded", "urgent",
+  ];
+  const lower = t.toLowerCase();
+  return signals.some((k) => lower.includes(k));
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 export default function PostmanForm() {
-  // Screen orchestration
   const [screen, setScreen] = useState<Screen>(1);
   const [voiceSupported, setVoiceSupported] = useState(true);
 
-  // Postman identity (sticky in localStorage)
   const [postman, setPostman] = useState("");
   const [postmanLocked, setPostmanLocked] = useState(false);
   const [nameDraft, setNameDraft] = useState("");
 
-  // Voice
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
@@ -128,20 +136,23 @@ export default function PostmanForm() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const gotResultRef = useRef(false);
 
-  // Form state
   const [needs, setNeeds] = useState<Need[]>([]);
   const [severity, setSeverity] = useState<Severity | null>(null);
   const [zoneId, setZoneId] = useState<string | null>(null);
   const [routeBlocked, setRouteBlocked] = useState(false);
 
-  // Submit
+  // Manual DigiPin entry (Screen 2 advanced option)
+  const [manualDigipinOpen, setManualDigipinOpen] = useState(false);
+  const [manualDigipinDraft, setManualDigipinDraft] = useState("");
+  const manualDigipinValid =
+    manualDigipinDraft.length > 0 && isValidDigiPin(manualDigipinDraft);
+
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  // Screen 3 confirmation snapshot (frozen at submit time so subsequent
-  // resets don't blank the success card).
   const [confirmation, setConfirmation] = useState<{
-    zone: Zone;
+    zone: Zone | null;
+    zoneName: string;
     needs: Need[];
     severity: Severity;
     digipin: string;
@@ -153,7 +164,15 @@ export default function PostmanForm() {
     ? ZONES.find((z) => z.id === zoneId) ?? null
     : null;
 
-  // ── Mount: hydrate postman name + detect voice support
+  // Location is resolved: either from zone picker OR valid manual DigiPin
+  const hasLocation = manualDigipinValid || !!zoneId;
+
+  const canSubmit =
+    !!postman.trim() &&
+    hasLocation &&
+    (routeBlocked || (needs.length > 0 && severity !== null));
+
+  // ── Mount
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(POSTMAN_KEY);
@@ -166,18 +185,14 @@ export default function PostmanForm() {
     if (!supported) setScreen(2);
   }, []);
 
-  // ── Cleanup any in-flight recognition on unmount
+  // ── Cleanup recognition on unmount
   useEffect(() => {
     return () => {
-      try {
-        recognitionRef.current?.abort();
-      } catch {
-        /* no-op */
-      }
+      try { recognitionRef.current?.abort(); } catch { /* no-op */ }
     };
   }, []);
 
-  // ── Screen 3 countdown + auto-return to Screen 1
+  // ── Screen 3 countdown
   useEffect(() => {
     if (screen !== 3) return;
     setCountdown(10);
@@ -192,12 +207,10 @@ export default function PostmanForm() {
       });
     }, 1000);
     return () => clearInterval(interval);
-    // handleStartOver is stable across renders for our purposes; intentionally
-    // omitted from deps so the timer isn't reset by unrelated state changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [screen]);
 
-  // ── Postman name lock
+  // ── Postman name
   const lockPostman = () => {
     const name = (postmanLocked ? postman : nameDraft).trim();
     if (!name) return;
@@ -214,30 +227,10 @@ export default function PostmanForm() {
   };
 
   const onNameKey = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      lockPostman();
-    }
+    if (e.key === "Enter") { e.preventDefault(); lockPostman(); }
   };
 
-  // Client-side critical override — catches Devanagari signals the server-side
-// heuristic misses because it only checks romanized/English keywords.
-function transcriptIsCritical(t: string): boolean {
-  const critical = [
-    // Devanagari
-    "मर", "जान", "खतरा", "बचाओ", "बचाओ", "फंसे", "फंसा", "डूब",
-    "पानी", "बाढ़", "बाढ", "इमरजेंसी", "मदद", "निकालो", "बचाओ",
-    "संकट", "तुरंत", "आपदा",
-    // Romanized / English (mirror of server list for safety)
-    "bachao", "bachaao", "khatra", "jaan", "mar ", "doob", "paani",
-    "pani", "flood", "trapped", "rescue", "evacuation", "emergency",
-    "dying", "danger", "stranded", "urgent",
-  ];
-  const lower = t.toLowerCase();
-  return critical.some((k) => lower.includes(k));
-}
-
-// ── Voice capture
+  // ── Voice
   const startVoice = () => {
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
@@ -277,9 +270,6 @@ function transcriptIsCritical(t: string): boolean {
             );
           if (valid.length > 0) setNeeds(valid);
         }
-        // If the server heuristic returned medium but the transcript contains
-        // Devanagari critical signals (e.g. "मर रहे हैं", "बाढ़", "खतरा"),
-        // upgrade to critical on the client side.
         const serverSeverity =
           data.severity === "critical" || data.severity === "medium"
             ? data.severity
@@ -297,9 +287,7 @@ function transcriptIsCritical(t: string): boolean {
       } catch (err) {
         console.warn("Voice extract failed:", err);
         setVoiceState("idle");
-        setVoiceApiError(
-          "Voice unavailable, please select needs manually"
-        );
+        setVoiceApiError("Voice unavailable, please select needs manually");
       }
     };
 
@@ -328,15 +316,11 @@ function transcriptIsCritical(t: string): boolean {
   };
 
   const stopVoice = () => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      /* no-op */
-    }
+    try { recognitionRef.current?.stop(); } catch { /* no-op */ }
     setVoiceState("idle");
   };
 
-  // ── Form interactions
+  // ── Form
   const toggleNeed = (n: Need) => {
     setNeeds((prev) =>
       prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]
@@ -345,23 +329,47 @@ function transcriptIsCritical(t: string): boolean {
 
   const pickZone = (id: string) => {
     setZoneId(id);
+    // Picking a zone clears the manual DigiPin — they're mutually exclusive
+    setManualDigipinDraft("");
+    setManualDigipinOpen(false);
     setSubmitError("");
   };
 
-  const canSubmit =
-    !!postman.trim() &&
-    !!zoneId &&
-    (routeBlocked || (needs.length > 0 && severity !== null));
+  const onManualDigipinChange = (raw: string) => {
+    const formatted = formatDigiPin(raw);
+    setManualDigipinDraft(formatted);
+    // Picking a manual DigiPin clears the zone selection
+    if (formatted.length > 0) setZoneId(null);
+  };
 
+  // ── Submit
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
     setSubmitError("");
-    if (!canSubmit || !selectedZone) return;
+    if (!canSubmit) return;
 
-    const { digipin, lat, lng } = safeEncode(
-      selectedZone.lat,
-      selectedZone.lng
-    );
+    let digipin: string;
+    let lat: number;
+    let lng: number;
+    let zoneName: string;
+
+    if (manualDigipinValid) {
+      // Use the manually-entered DigiPin directly; coords decoded from it
+      digipin = manualDigipinDraft.toUpperCase();
+      // Approximate coords: API will decode from DigiPin server-side
+      lat = FALLBACK_LAT;
+      lng = FALLBACK_LNG;
+      zoneName = `DigiPin ${digipin}`;
+    } else if (selectedZone) {
+      const encoded = safeEncode(selectedZone.lat, selectedZone.lng);
+      digipin = encoded.digipin;
+      lat = encoded.lat;
+      lng = encoded.lng;
+      zoneName = `${selectedZone.label}, ${selectedZone.district}`;
+    } else {
+      return;
+    }
+
     const submittedNeeds: string[] = routeBlocked ? ["blocked"] : needs;
     const submittedSeverity: Severity = routeBlocked
       ? "critical"
@@ -390,6 +398,7 @@ function transcriptIsCritical(t: string): boolean {
       }
       setConfirmation({
         zone: selectedZone,
+        zoneName,
         needs: routeBlocked ? [] : needs,
         severity: submittedSeverity,
         digipin,
@@ -416,6 +425,8 @@ function transcriptIsCritical(t: string): boolean {
     setVoiceApiError("");
     setSubmitError("");
     setConfirmation(null);
+    setManualDigipinDraft("");
+    setManualDigipinOpen(false);
     setScreen(voiceSupported ? 1 : 2);
   };
 
@@ -426,204 +437,199 @@ function transcriptIsCritical(t: string): boolean {
   };
 
   // ──────────────────────────────────────────────────────────────────────────
-  // RENDER
+  // SCREEN 1 — SPEAK
   // ──────────────────────────────────────────────────────────────────────────
-
-  // ─── SCREEN 1 — SPEAK ────────────────────────────────────────────────────
   if (screen === 1) {
     const showNameInput = !postmanLocked;
     const continueDisabled = !postman.trim() && !nameDraft.trim();
 
     return (
-      <div className="min-h-screen bg-[#0f172a] px-4 py-4 text-slate-100">
-        <div className="mx-auto flex min-h-[calc(100vh-2rem)] max-w-md flex-col">
-          {/* Header */}
-          <header className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-sm font-bold text-white">
-                IP
-              </div>
-              <span className="text-base font-bold">PostResilience</span>
+      <div className="flex min-h-[100dvh] flex-col bg-[#0f172a] px-4 pt-4 text-slate-100">
+        {/* Header */}
+        <header className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-sm font-bold text-white">
+              IP
             </div>
-            {postmanLocked ? (
-              <button
-                type="button"
-                onClick={unlockPostman}
-                className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1"
-              >
-                <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white">
-                  {postman.charAt(0).toUpperCase()}
-                </span>
-                <span className="text-xs font-medium text-slate-100">
-                  {postman}
-                </span>
-              </button>
-            ) : null}
-          </header>
-
-          {/* Name capture (inline, blocks the mic until set) */}
-          {showNameInput && (
-            <div className="mt-6 rounded-xl border border-slate-700 bg-slate-800/40 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                Your name
-              </p>
-              <div className="mt-1.5 flex gap-2">
-                <input
-                  type="text"
-                  inputMode="text"
-                  autoComplete="name"
-                  placeholder="e.g. Rajan K"
-                  value={nameDraft}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onBlur={lockPostman}
-                  onKeyDown={onNameKey}
-                  className="block w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2.5 text-base text-slate-100 placeholder:text-slate-500 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/40"
-                />
-                <button
-                  type="button"
-                  onClick={lockPostman}
-                  disabled={!nameDraft.trim()}
-                  className="shrink-0 rounded-lg bg-red-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-40"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Mic — centred in the remaining space */}
-          <div className="flex flex-1 flex-col items-center justify-center py-8">
+            <span className="text-base font-bold">PostResilience</span>
+          </div>
+          {postmanLocked && (
             <button
               type="button"
-              onClick={
-                voiceState === "listening" ? stopVoice : startVoice
-              }
-              disabled={
-                showNameInput ||
-                voiceState === "processing" ||
-                !voiceSupported
-              }
-              aria-label="Start voice capture"
-              className={`relative flex h-20 w-20 items-center justify-center rounded-full text-3xl shadow-2xl transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                voiceState === "listening"
-                  ? "animate-pulse bg-red-500"
-                  : voiceState === "processing"
-                  ? "bg-slate-700"
-                  : "bg-red-600 hover:bg-red-500 active:scale-95"
-              }`}
+              onClick={unlockPostman}
+              style={{ WebkitTapHighlightColor: "transparent" }}
+              className="flex touch-manipulation items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800/60 px-2.5 py-1"
             >
-              {voiceState === "processing" ? (
-                <span className="inline-block h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-transparent" />
-              ) : (
-                <span aria-hidden>🎤</span>
-              )}
-              {voiceState === "listening" && (
-                <span className="absolute inset-0 -z-10 animate-ping rounded-full bg-red-500/40" />
-              )}
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white">
+                {postman.charAt(0).toUpperCase()}
+              </span>
+              <span className="text-xs font-medium text-slate-100">{postman}</span>
             </button>
+          )}
+        </header>
 
-            <div className="mt-5 text-center">
-              <div className="text-xl font-bold">
-                {voiceState === "idle" && "बोलिए / Speak"}
-                {voiceState === "listening" &&
-                  "सुन रहे हैं… / Listening…"}
-                {voiceState === "processing" &&
-                  "समझ रहे हैं… / Understanding…"}
-                {voiceState === "error" &&
-                  "फिर कोशिश करें / Try again"}
-              </div>
-              <div className="mt-1 text-xs text-slate-400">
-                {voiceState === "listening"
-                  ? "Tap to stop"
-                  : "Hindi · English · Malayalam"}
-              </div>
-              {voiceError && voiceState === "error" && (
-                <div className="mt-2 text-xs font-medium text-red-300">
-                  {voiceError}
-                </div>
-              )}
-              {voiceApiError && (
-                <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200">
-                  {voiceApiError}
-                </div>
-              )}
+        {/* Name capture */}
+        {showNameInput && (
+          <div className="mt-6 rounded-xl border border-slate-700 bg-slate-800/40 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              Your name
+            </p>
+            <div className="mt-1.5 flex gap-2">
+              <input
+                type="text"
+                inputMode="text"
+                autoComplete="name"
+                placeholder="e.g. Rajan K"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={lockPostman}
+                onKeyDown={onNameKey}
+                className="block w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+              />
+              <button
+                type="button"
+                onClick={lockPostman}
+                disabled={!nameDraft.trim()}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className="shrink-0 touch-manipulation rounded-lg bg-red-600 px-4 py-3 text-sm font-semibold text-white active:bg-red-700 disabled:opacity-40"
+              >
+                Save
+              </button>
             </div>
+          </div>
+        )}
 
-            {/* Extracted output */}
-            {(needs.length > 0 || severity || voiceTranscript) && (
-              <div className="mt-6 w-full space-y-3">
-                {needs.length > 0 && (
-                  <div className="flex flex-wrap justify-center gap-1.5">
-                    {needs.map((n) => (
-                      <span
-                        key={n}
-                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${NEED_CHIP_DARK[n]}`}
-                      >
-                        {n}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {severity && (
-                  <div className="flex justify-center">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${
-                        severity === "critical"
-                          ? "border-red-400/60 bg-red-500/20 text-red-100"
-                          : "border-amber-400/60 bg-amber-500/20 text-amber-100"
-                      }`}
-                    >
-                      {severity === "critical"
-                        ? "🔴 Critical"
-                        : "⚠️ Not urgent"}
-                    </span>
-                  </div>
-                )}
-                {voiceTranscript && (
-                  <p className="text-center text-[11px] italic text-slate-400">
-                    “{voiceTranscript}”
-                  </p>
-                )}
+        {/* Mic — fills remaining space */}
+        <div className="flex flex-1 flex-col items-center justify-center gap-0 py-6">
+          <button
+            type="button"
+            onClick={voiceState === "listening" ? stopVoice : startVoice}
+            disabled={showNameInput || voiceState === "processing" || !voiceSupported}
+            aria-label="Start voice capture"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+            className={`relative flex h-20 w-20 touch-manipulation items-center justify-center rounded-full text-3xl shadow-2xl transition-opacity disabled:cursor-not-allowed disabled:opacity-40 ${
+              voiceState === "listening"
+                ? "bg-red-500"
+                : voiceState === "processing"
+                ? "bg-slate-700"
+                : "bg-red-600 active:opacity-80"
+            }`}
+          >
+            {voiceState === "processing" ? (
+              <span className="inline-block h-7 w-7 animate-spin rounded-full border-4 border-slate-300 border-t-transparent" />
+            ) : (
+              <span aria-hidden>🎤</span>
+            )}
+            {voiceState === "listening" && (
+              <span
+                className="absolute inset-0 animate-ping rounded-full bg-red-500/50"
+                aria-hidden
+              />
+            )}
+          </button>
+
+          <div className="mt-5 text-center">
+            <div className="text-xl font-bold">
+              {voiceState === "idle" && "बोलिए / Speak"}
+              {voiceState === "listening" && "सुन रहे हैं… / Listening…"}
+              {voiceState === "processing" && "समझ रहे हैं… / Understanding…"}
+              {voiceState === "error" && "फिर कोशिश करें / Try again"}
+            </div>
+            <div className="mt-1 text-xs text-slate-400">
+              {voiceState === "listening" ? "Tap to stop" : "Hindi · English · Malayalam"}
+            </div>
+            {voiceError && voiceState === "error" && (
+              <p className="mt-2 text-xs font-medium text-red-300">{voiceError}</p>
+            )}
+            {voiceApiError && (
+              <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200">
+                {voiceApiError}
               </div>
             )}
           </div>
 
-          {/* CTAs pinned at the bottom */}
-          <div className="space-y-3 pb-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (!postmanLocked) lockPostman();
-                setScreen(2);
-              }}
-              disabled={continueDisabled}
-              className="w-full rounded-xl bg-red-600 px-4 py-4 text-base font-bold text-white shadow-lg transition hover:bg-red-500 active:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              आगे बढ़ें → / Continue
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!postmanLocked && nameDraft.trim()) lockPostman();
-                setScreen(2);
-              }}
-              className="block w-full text-center text-xs font-medium text-slate-400 underline-offset-2 hover:text-slate-200 hover:underline"
-            >
-              No mic? Type instead →
-            </button>
-          </div>
+          {/* Voice extraction output chips */}
+          {(needs.length > 0 || severity || voiceTranscript) && (
+            <div className="mt-6 w-full max-w-xs space-y-3">
+              {needs.length > 0 && (
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {needs.map((n) => (
+                    <span
+                      key={n}
+                      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${NEED_CHIP_DARK[n]}`}
+                    >
+                      {n}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {severity && (
+                <div className="flex justify-center">
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider ${
+                      severity === "critical"
+                        ? "border-red-400/60 bg-red-500/20 text-red-100"
+                        : "border-amber-400/60 bg-amber-500/20 text-amber-100"
+                    }`}
+                  >
+                    {severity === "critical" ? "🔴 Critical" : "⚠️ Not urgent"}
+                  </span>
+                </div>
+              )}
+              {voiceTranscript && (
+                <p className="text-center text-[11px] italic text-slate-400">
+                  &ldquo;{voiceTranscript}&rdquo;
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* CTA — pinned to bottom with safe-area inset */}
+        <div
+          className="space-y-3 pb-4"
+          style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              if (!postmanLocked) lockPostman();
+              setScreen(2);
+            }}
+            disabled={continueDisabled}
+            style={{ WebkitTapHighlightColor: "transparent" }}
+            className="w-full touch-manipulation rounded-xl bg-red-600 px-4 py-4 text-base font-bold text-white shadow-lg transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            आगे बढ़ें → / Continue
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!postmanLocked && nameDraft.trim()) lockPostman();
+              setScreen(2);
+            }}
+            style={{ WebkitTapHighlightColor: "transparent" }}
+            className="block w-full touch-manipulation text-center text-sm font-medium text-slate-400 underline-offset-2 active:text-slate-200"
+          >
+            No mic? Type instead →
+          </button>
         </div>
       </div>
     );
   }
 
-  // ─── SCREEN 3 — SUBMITTED ────────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
+  // SCREEN 3 — SUBMITTED
+  // ──────────────────────────────────────────────────────────────────────────
   if (screen === 3 && confirmation) {
     return (
-      <div className="min-h-screen bg-[#059669] px-4 py-8">
-        <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-md flex-col">
+      <div
+        className="flex min-h-[100dvh] flex-col bg-[#059669] px-4 pt-8 text-white"
+        style={{ paddingBottom: "max(1.5rem, env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col">
           {/* Hero */}
-          <div className="flex flex-1 flex-col items-center justify-center text-center text-white">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
             <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-white/40 bg-white/10">
               <svg
                 viewBox="0 0 24 24"
@@ -638,7 +644,6 @@ function transcriptIsCritical(t: string): boolean {
                 <polyline points="5 12 10 17 19 7" />
               </svg>
             </div>
-
             <h1 className="mt-6 text-3xl font-black">रिपोर्ट मिल गई!</h1>
             <p className="mt-2 text-sm font-medium text-emerald-50">
               Help is on the way · मदद आ रही है
@@ -647,7 +652,7 @@ function transcriptIsCritical(t: string): boolean {
             {/* Summary card */}
             <div className="mt-6 w-full rounded-xl bg-white p-4 text-left shadow-xl">
               <div className="text-sm font-semibold text-slate-900">
-                📍 {confirmation.zone.label}, {confirmation.zone.district}
+                📍 {confirmation.zoneName}
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
@@ -683,9 +688,7 @@ function transcriptIsCritical(t: string): boolean {
                       : "border-amber-300 bg-amber-50 text-amber-700"
                   }`}
                 >
-                  {confirmation.severity === "critical"
-                    ? "Critical"
-                    : "Not urgent"}
+                  {confirmation.severity === "critical" ? "Critical" : "Not urgent"}
                 </span>
               </div>
 
@@ -705,18 +708,20 @@ function transcriptIsCritical(t: string): boolean {
           </div>
 
           {/* Actions */}
-          <div className="space-y-2 pt-6">
+          <div className="space-y-2 pt-4">
             <button
               type="button"
               onClick={goToDashboard}
-              className="w-full rounded-xl bg-white px-4 py-4 text-base font-bold text-slate-900 shadow-md transition hover:bg-slate-50 active:scale-[0.99]"
+              style={{ WebkitTapHighlightColor: "transparent" }}
+              className="w-full touch-manipulation rounded-xl bg-white px-4 py-4 text-base font-bold text-slate-900 shadow-md active:opacity-90"
             >
               View SDMA Dashboard →
             </button>
             <button
               type="button"
               onClick={handleStartOver}
-              className="w-full rounded-xl border-2 border-white/80 bg-transparent px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
+              style={{ WebkitTapHighlightColor: "transparent" }}
+              className="w-full touch-manipulation rounded-xl border-2 border-white/80 bg-transparent px-4 py-3.5 text-sm font-semibold text-white active:bg-white/10"
             >
               Submit another report
             </button>
@@ -726,15 +731,20 @@ function transcriptIsCritical(t: string): boolean {
     );
   }
 
-  // ─── SCREEN 2 — WHERE + WHAT ─────────────────────────────────────────────
+  // ──────────────────────────────────────────────────────────────────────────
+  // SCREEN 2 — WHERE + WHAT
+  // ──────────────────────────────────────────────────────────────────────────
   const grouped: Record<"Thrissur" | "Ernakulam", Zone[]> = {
     Thrissur: ZONES.filter((z) => z.district === "Thrissur"),
     Ernakulam: ZONES.filter((z) => z.district === "Ernakulam"),
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-4">
-      <div className="mx-auto max-w-md">
+    <div
+      className="flex min-h-[100dvh] flex-col bg-slate-50 overscroll-contain"
+      style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="mx-auto w-full max-w-md flex-1 px-4 pt-4">
         {/* Top bar */}
         <header className="mb-3 flex items-center justify-between">
           <button
@@ -742,7 +752,8 @@ function transcriptIsCritical(t: string): boolean {
             onClick={() => setScreen(voiceSupported ? 1 : 2)}
             disabled={!voiceSupported}
             aria-label="Back"
-            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+            className="flex h-10 w-10 touch-manipulation items-center justify-center rounded-full border border-slate-200 bg-white text-lg text-slate-700 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
           >
             ←
           </button>
@@ -754,16 +765,14 @@ function transcriptIsCritical(t: string): boolean {
               <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white">
                 {postman.charAt(0).toUpperCase()}
               </span>
-              <span className="text-xs font-medium text-slate-800">
-                {postman}
-              </span>
+              <span className="text-xs font-medium text-slate-800">{postman}</span>
             </div>
           ) : (
-            <span className="h-9 w-9" aria-hidden />
+            <span className="h-10 w-10" aria-hidden />
           )}
         </header>
 
-        {/* Inline name capture (only if we're stranded on Screen 2 with no name) */}
+        {/* Inline name capture */}
         {!postmanLocked && (
           <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
@@ -779,13 +788,14 @@ function transcriptIsCritical(t: string): boolean {
                 onChange={(e) => setNameDraft(e.target.value)}
                 onBlur={lockPostman}
                 onKeyDown={onNameKey}
-                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-base text-slate-900 placeholder:text-slate-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200"
+                className="block w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-base text-slate-900 placeholder:text-slate-400 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-200"
               />
               <button
                 type="button"
                 onClick={lockPostman}
                 disabled={!nameDraft.trim()}
-                className="shrink-0 rounded-lg bg-slate-900 px-3 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className="shrink-0 touch-manipulation rounded-lg bg-slate-900 px-4 py-3 text-sm font-semibold text-white active:bg-slate-800 disabled:opacity-50"
               >
                 Save
               </button>
@@ -799,10 +809,7 @@ function transcriptIsCritical(t: string): boolean {
           </div>
         )}
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
-        >
+        <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           {/* A — Needs */}
           <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -818,10 +825,11 @@ function transcriptIsCritical(t: string): boolean {
                     disabled={routeBlocked}
                     onClick={() => toggleNeed(opt.value)}
                     aria-pressed={active}
-                    className={`flex min-h-[80px] flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-4 text-sm font-bold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    style={{ WebkitTapHighlightColor: "transparent" }}
+                    className={`flex min-h-[76px] touch-manipulation flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-4 text-sm font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       active
-                        ? "border-red-600 bg-red-600 text-white shadow-md"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                        ? "border-red-600 bg-red-600 text-white"
+                        : "border-slate-200 bg-white text-slate-700 active:bg-slate-50"
                     }`}
                   >
                     <span className="text-2xl leading-none">{opt.emoji}</span>
@@ -832,38 +840,41 @@ function transcriptIsCritical(t: string): boolean {
             </div>
 
             <div className="mt-3 space-y-2">
-              <button
-                type="button"
-                disabled={routeBlocked}
-                onClick={() => setSeverity("medium")}
-                aria-pressed={severity === "medium"}
-                className={`flex min-h-[56px] w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                  severity === "medium"
-                    ? "border-amber-500 bg-amber-50"
-                    : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                <span className="text-2xl">⚠️</span>
-                <span className="text-sm font-semibold text-slate-900">
-                  People need help — not urgent
-                </span>
-              </button>
-              <button
-                type="button"
-                disabled={routeBlocked}
-                onClick={() => setSeverity("critical")}
-                aria-pressed={severity === "critical"}
-                className={`flex min-h-[56px] w-full items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                  severity === "critical"
-                    ? "border-red-600 bg-red-50"
-                    : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                }`}
-              >
-                <span className="text-2xl">🔴</span>
-                <span className="text-sm font-semibold text-slate-900">
-                  Lives at risk — act now
-                </span>
-              </button>
+              {(
+                [
+                  {
+                    val: "medium" as Severity,
+                    emoji: "⚠️",
+                    label: "People need help — not urgent",
+                    active: severity === "medium",
+                    activeClass: "border-amber-500 bg-amber-50",
+                  },
+                  {
+                    val: "critical" as Severity,
+                    emoji: "🔴",
+                    label: "Lives at risk — act now",
+                    active: severity === "critical",
+                    activeClass: "border-red-600 bg-red-50",
+                  },
+                ] as const
+              ).map((s) => (
+                <button
+                  key={s.val}
+                  type="button"
+                  disabled={routeBlocked}
+                  onClick={() => setSeverity(s.val)}
+                  aria-pressed={s.active}
+                  style={{ WebkitTapHighlightColor: "transparent" }}
+                  className={`flex min-h-[56px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    s.active
+                      ? s.activeClass
+                      : "border-slate-200 bg-white active:bg-slate-50"
+                  }`}
+                >
+                  <span className="text-2xl">{s.emoji}</span>
+                  <span className="text-sm font-semibold text-slate-900">{s.label}</span>
+                </button>
+              ))}
             </div>
           </section>
 
@@ -887,10 +898,11 @@ function transcriptIsCritical(t: string): boolean {
                         type="button"
                         onClick={() => pickZone(zone.id)}
                         aria-pressed={active}
-                        className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition ${
+                        style={{ WebkitTapHighlightColor: "transparent" }}
+                        className={`flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
                           active
                             ? "border-red-600 bg-red-50"
-                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                            : "border-slate-200 bg-white active:bg-slate-50"
                         }`}
                       >
                         <span
@@ -901,7 +913,7 @@ function transcriptIsCritical(t: string): boolean {
                           {zone.label}
                         </span>
                         {active && (
-                          <span className="text-base text-red-600">✓</span>
+                          <span className="text-base text-red-600" aria-hidden>✓</span>
                         )}
                       </button>
                     );
@@ -909,6 +921,54 @@ function transcriptIsCritical(t: string): boolean {
                 </div>
               </div>
             ))}
+
+            {/* Manual DigiPin entry */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setManualDigipinOpen((v) => !v)}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className="flex touch-manipulation items-center gap-1.5 text-xs font-semibold text-slate-400 active:text-slate-600"
+              >
+                <span>{manualDigipinOpen ? "▾" : "▸"}</span>
+                <span>Enter DigiPin manually</span>
+              </button>
+
+              {manualDigipinOpen && (
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    inputMode="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    placeholder="e.g. M3F-K9C-72L8"
+                    maxLength={12}
+                    value={manualDigipinDraft}
+                    onChange={(e) => onManualDigipinChange(e.target.value)}
+                    className={`block w-full rounded-xl border-2 px-4 py-3 font-mono text-sm font-semibold uppercase tracking-widest text-slate-900 placeholder:font-sans placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
+                      manualDigipinDraft.length === 0
+                        ? "border-slate-200 bg-white focus:border-red-500 focus:ring-red-200"
+                        : manualDigipinValid
+                        ? "border-emerald-500 bg-emerald-50 focus:border-emerald-600 focus:ring-emerald-200"
+                        : "border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200"
+                    }`}
+                  />
+                  {manualDigipinDraft.length > 0 && (
+                    <p
+                      className={`mt-1 text-[11px] font-medium ${
+                        manualDigipinValid ? "text-emerald-700" : "text-red-600"
+                      }`}
+                    >
+                      {manualDigipinValid
+                        ? "✓ Valid DigiPin — will use this location"
+                        : "Invalid format — must be 10 chars, e.g. M3F-K9C-72L8"}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </section>
 
           {/* C — Route-blocked toggle */}
@@ -918,10 +978,11 @@ function transcriptIsCritical(t: string): boolean {
               role="switch"
               aria-checked={routeBlocked}
               onClick={() => setRouteBlocked((v) => !v)}
-              className={`flex min-h-[56px] w-full items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-left transition ${
+              style={{ WebkitTapHighlightColor: "transparent" }}
+              className={`flex min-h-[56px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors ${
                 routeBlocked
                   ? "border-amber-500 bg-amber-50"
-                  : "border-slate-200 bg-white hover:bg-slate-50"
+                  : "border-slate-200 bg-white active:bg-slate-50"
               }`}
             >
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
@@ -929,13 +990,13 @@ function transcriptIsCritical(t: string): boolean {
                 <span>Cannot reach this area</span>
               </div>
               <span
-                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition ${
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
                   routeBlocked ? "bg-amber-500" : "bg-slate-300"
                 }`}
                 aria-hidden="true"
               >
                 <span
-                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
                     routeBlocked ? "translate-x-5" : "translate-x-0.5"
                   }`}
                 />
@@ -950,13 +1011,18 @@ function transcriptIsCritical(t: string): boolean {
 
           {/* Submit */}
           <button
-            type="submit"
+            type="button"
+            onClick={() => void handleSubmit()}
             disabled={!canSubmit || submitting}
-            className="flex min-h-[56px] w-full items-center justify-center rounded-xl bg-red-600 px-4 text-base font-bold text-white shadow-md transition hover:bg-red-700 active:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ WebkitTapHighlightColor: "transparent" }}
+            className="flex min-h-[56px] w-full touch-manipulation items-center justify-center rounded-xl bg-red-600 px-4 text-base font-bold text-white shadow-md transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "Submitting…" : "रिपोर्ट भेजें / Submit Report"}
           </button>
-        </form>
+        </div>
+
+        {/* bottom spacer so content clears the safe-area */}
+        <div className="h-4" />
       </div>
     </div>
   );
