@@ -1,0 +1,7 @@
+[
+  { "id": "PO-THR-HD", "name": "Thrissur Head PO",   "lat": 10.5270, "lng": 76.2150, "district": "Thrissur",  "status": "operational" },
+  { "id": "PO-CHA-SO", "name": "Chalakudy SO",       "lat": 10.3020, "lng": 76.3360, "district": "Thrissur",  "status": "operational" },
+  { "id": "PO-IRI-SO", "name": "Irinjalakuda SO",    "lat": 10.3450, "lng": 76.2150, "district": "Thrissur",  "status": "flooded"     },
+  { "id": "PO-EKM-HD", "name": "Ernakulam Head PO",  "lat": 9.9780,  "lng": 76.2830, "district": "Ernakulam", "status": "operational" },
+  { "id": "PO-ALU-SO", "name": "Aluva SO",           "lat": 10.1080, "lng": 76.3540, "district": "Ernakulam", "status": "operational" }
+]

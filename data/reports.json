@@ -1,0 +1,205 @@
+[
+  {
+    "id": 1,
+    "postman": "Rajan K",
+    "digipin": "4F3-KP7-28M6",
+    "lat": 10.5308,
+    "lng": 76.2144,
+    "needs": [
+      "evacuation",
+      "medicine"
+    ],
+    "severity": "critical",
+    "district": "Thrissur"
+  },
+  {
+    "id": 2,
+    "postman": "Suresh M",
+    "digipin": "4F3-KP7-29N7",
+    "lat": 10.5412,
+    "lng": 76.2201,
+    "needs": [
+      "cash",
+      "food"
+    ],
+    "severity": "medium",
+    "district": "Thrissur"
+  },
+  {
+    "id": 3,
+    "postman": "Anil P",
+    "digipin": "4F3-KP8-11A2",
+    "lat": 10.5201,
+    "lng": 76.2089,
+    "needs": [
+      "medicine"
+    ],
+    "severity": "critical",
+    "district": "Thrissur"
+  },
+  {
+    "id": 4,
+    "postman": "Babu T",
+    "digipin": "4F3-KP8-12B3",
+    "lat": 10.515,
+    "lng": 76.1998,
+    "needs": [
+      "evacuation"
+    ],
+    "severity": "critical",
+    "district": "Thrissur"
+  },
+  {
+    "id": 5,
+    "postman": "Vijayan R",
+    "digipin": "4F3-KQ1-01C4",
+    "lat": 10.5089,
+    "lng": 76.2345,
+    "needs": [
+      "food",
+      "cash"
+    ],
+    "severity": "low",
+    "district": "Thrissur"
+  },
+  {
+    "id": 6,
+    "postman": "Pradeep N",
+    "digipin": "4F4-AA1-11D5",
+    "lat": 9.9816,
+    "lng": 76.2998,
+    "needs": [
+      "medicine",
+      "cash"
+    ],
+    "severity": "medium",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 7,
+    "postman": "Sajan K",
+    "digipin": "4F4-AA1-12E6",
+    "lat": 9.9901,
+    "lng": 76.3089,
+    "needs": [
+      "food"
+    ],
+    "severity": "low",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 8,
+    "postman": "Thomas V",
+    "digipin": "4F4-AA2-21F7",
+    "lat": 10.0012,
+    "lng": 76.2876,
+    "needs": [
+      "evacuation",
+      "medicine"
+    ],
+    "severity": "critical",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 9,
+    "postman": "Manoj S",
+    "digipin": "4F4-AB1-31G8",
+    "lat": 10.0234,
+    "lng": 76.3201,
+    "needs": [
+      "cash"
+    ],
+    "severity": "medium",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 10,
+    "postman": "Krishnan P",
+    "digipin": "4F4-AB2-42H9",
+    "lat": 10.0456,
+    "lng": 76.3345,
+    "needs": [
+      "food",
+      "medicine"
+    ],
+    "severity": "medium",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 11,
+    "postman": "Dinesan M",
+    "digipin": "4F3-KP6-88J1",
+    "lat": 10.5678,
+    "lng": 76.1876,
+    "needs": [
+      "cash",
+      "food"
+    ],
+    "severity": "low",
+    "district": "Thrissur"
+  },
+  {
+    "id": 12,
+    "postman": "Unni K",
+    "digipin": "4F3-KP6-89K2",
+    "lat": 10.5734,
+    "lng": 76.1934,
+    "needs": [
+      "medicine"
+    ],
+    "severity": "medium",
+    "district": "Thrissur"
+  },
+  {
+    "id": 13,
+    "postman": "Biju A",
+    "digipin": "4F4-AC1-51L3",
+    "lat": 10.0789,
+    "lng": 76.3456,
+    "needs": [
+      "evacuation"
+    ],
+    "severity": "critical",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 14,
+    "postman": "Ravi N",
+    "digipin": "4F4-AC2-62M4",
+    "lat": 10.0901,
+    "lng": 76.3567,
+    "needs": [
+      "food"
+    ],
+    "severity": "low",
+    "district": "Ernakulam"
+  },
+  {
+    "id": 15,
+    "postman": "Soman T",
+    "digipin": "4F3-KQ2-73N5",
+    "lat": 10.4987,
+    "lng": 76.2456,
+    "needs": [
+      "cash",
+      "medicine"
+    ],
+    "severity": "medium",
+    "district": "Thrissur"
+  },
+  {
+    "id": 16,
+    "postman": "Ankit",
+    "digipin": "39J-7MF-J38F",
+    "lat": 28.688643,
+    "lng": 77.45801,
+    "needs": [
+      "food",
+      "medicine",
+      "cash"
+    ],
+    "severity": "critical",
+    "district": "Other",
+    "photoFlag": false
+  }
+]

@@ -25,3 +25,18 @@ body {
     text-wrap: balance;
   }
 }
+
+/* Floating label sitting in the middle of an unreached-zone polygon.
+   Strip leaflet's default box/arrow so it reads as a map label, not a tooltip. */
+.leaflet-tooltip.unreached-label {
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 2px 6px;
+  box-shadow: none;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.leaflet-tooltip.unreached-label::before {
+  display: none;
+}
