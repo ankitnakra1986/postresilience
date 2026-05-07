@@ -164,6 +164,10 @@ export default function PostmanForm() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
+  // Screen 2: whether full needs/severity editor is expanded (only matters
+  // when voice already pre-filled them — default collapsed to show zone hero)
+  const [editOpen, setEditOpen] = useState(false);
+
   const [confirmation, setConfirmation] = useState<{
     zone: Zone | null;
     zoneName: string;
@@ -390,6 +394,7 @@ export default function PostmanForm() {
     setVoiceApiError("");
     setSubmitError("");
     setConfirmation(null);
+    setEditOpen(false);
     setScreen(voiceSupported ? 1 : 2);
   };
 
@@ -699,6 +704,11 @@ export default function PostmanForm() {
     Ernakulam: ZONES.filter((z) => z.district === "Ernakulam"),
   };
 
+  // True when voice already captured needs/severity on Screen 1.
+  // In this mode Screen 2 shows a compact summary + zone as the hero,
+  // collapsing the full need buttons unless the postman taps "Edit".
+  const voicePrefilled = (needs.length > 0 || severity !== null) && !routeBlocked;
+
   return (
     <div
       className="flex min-h-[100dvh] flex-col bg-slate-50 overscroll-contain"
@@ -770,123 +780,232 @@ export default function PostmanForm() {
         )}
 
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          {/* A — Needs */}
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              क्या चाहिए / What is needed
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {NEED_OPTIONS.map((opt) => {
-                const active = needs.includes(opt.value);
-                return (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    disabled={routeBlocked}
-                    onClick={() => toggleNeed(opt.value)}
-                    aria-pressed={active}
-                    style={{ WebkitTapHighlightColor: "transparent" }}
-                    className={`flex min-h-[80px] touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                      active
-                        ? "border-red-600 bg-red-600 text-white"
-                        : "border-slate-200 bg-white text-slate-700 active:bg-slate-50"
-                    }`}
-                  >
-                    <span className="text-2xl leading-none">{opt.emoji}</span>
-                    <span className="text-base font-bold leading-tight">{opt.hindi}</span>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wide ${active ? "text-red-100" : "text-slate-400"}`}>{opt.label}</span>
-                  </button>
-                );
-              })}
-            </div>
 
-            <div className="mt-3 space-y-2">
-              <button
-                type="button"
-                disabled={routeBlocked}
-                onClick={() => setSeverity("medium")}
-                aria-pressed={severity === "medium"}
-                style={{ WebkitTapHighlightColor: "transparent" }}
-                className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  severity === "medium"
-                    ? "border-amber-500 bg-amber-50"
-                    : "border-slate-200 bg-white active:bg-slate-50"
-                }`}
-              >
-                <span className="text-2xl">⚠️</span>
-                <div>
-                  <div className="text-sm font-bold text-slate-900">मदद चाहिए</div>
-                  <div className="text-[11px] text-slate-500">People need help — not urgent</div>
-                </div>
-              </button>
-              <button
-                type="button"
-                disabled={routeBlocked}
-                onClick={() => setSeverity("critical")}
-                aria-pressed={severity === "critical"}
-                style={{ WebkitTapHighlightColor: "transparent" }}
-                className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  severity === "critical"
-                    ? "border-red-600 bg-red-50"
-                    : "border-slate-200 bg-white active:bg-slate-50"
-                }`}
-              >
-                <span className="text-2xl">🔴</span>
-                <div>
-                  <div className="text-sm font-bold text-slate-900">जान खतरे में है</div>
-                  <div className="text-[11px] text-slate-500">Lives at risk — act now</div>
-                </div>
-              </button>
-            </div>
-          </section>
-
-          {/* B — Zone picker */}
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              अपना इलाका चुनें / Select your area
-            </p>
-
-            {(["Thrissur", "Ernakulam"] as const).map((district) => (
-              <div key={district} className="mt-2">
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
-                  {district}
-                </p>
-                <div className="space-y-1.5">
-                  {grouped[district].map((zone) => {
-                    const active = zoneId === zone.id;
-                    return (
-                      <button
-                        key={zone.id}
-                        type="button"
-                        onClick={() => pickZone(zone.id)}
-                        aria-pressed={active}
-                        style={{ WebkitTapHighlightColor: "transparent" }}
-                        className={`flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
-                          active
-                            ? "border-red-600 bg-red-50"
-                            : "border-slate-200 bg-white active:bg-slate-50"
+          {/* ── VOICE-PREFILLED MODE: compact summary + zone as hero ── */}
+          {voicePrefilled && !editOpen ? (
+            <>
+              {/* Voice summary card */}
+              <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-700">
+                        🎤 आवाज़ से मिला
+                      </span>
+                    </div>
+                    {/* Need chips */}
+                    <div className="flex flex-wrap gap-1.5">
+                      {needs.map((n) => (
+                        <span
+                          key={n}
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold uppercase tracking-wide ${NEED_CHIP_LIGHT[n]}`}
+                        >
+                          {NEED_OPTIONS.find((o) => o.value === n)?.emoji}{" "}
+                          {NEED_OPTIONS.find((o) => o.value === n)?.hindi}
+                        </span>
+                      ))}
+                      {needs.length === 0 && (
+                        <span className="text-xs text-emerald-600">
+                          No needs — tap Edit to add
+                        </span>
+                      )}
+                    </div>
+                    {/* Severity chip */}
+                    {severity && (
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-bold ${
+                          severity === "critical"
+                            ? "border-red-300 bg-red-50 text-red-700"
+                            : "border-amber-300 bg-amber-50 text-amber-700"
                         }`}
                       >
-                        <span
-                          className={`text-sm font-semibold ${
-                            active ? "text-red-700" : "text-slate-900"
-                          }`}
-                        >
-                          {zone.label}
-                        </span>
-                        {active && (
-                          <span className="text-base text-red-600" aria-hidden>✓</span>
-                        )}
+                        {severity === "critical" ? "🔴 जान खतरे में" : "⚠️ मदद चाहिए"}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    style={{ WebkitTapHighlightColor: "transparent" }}
+                    className="shrink-0 touch-manipulation rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 active:bg-slate-100"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </section>
+
+              {/* Zone picker — HERO in voice mode */}
+              <section>
+                <p className="mb-2 text-sm font-bold text-slate-800">
+                  📍 अपना इलाका चुनें
+                </p>
+                <p className="mb-3 text-[11px] text-slate-500">
+                  Select your area — tap once to confirm
+                </p>
+                {(["Thrissur", "Ernakulam"] as const).map((district) => (
+                  <div key={district} className="mt-2">
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+                      {district}
+                    </p>
+                    <div className="space-y-1.5">
+                      {grouped[district].map((zone) => {
+                        const active = zoneId === zone.id;
+                        return (
+                          <button
+                            key={zone.id}
+                            type="button"
+                            onClick={() => pickZone(zone.id)}
+                            aria-pressed={active}
+                            style={{ WebkitTapHighlightColor: "transparent" }}
+                            className={`flex min-h-[56px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
+                              active
+                                ? "border-red-600 bg-red-50"
+                                : "border-slate-200 bg-white active:bg-red-50"
+                            }`}
+                          >
+                            <span className={`text-base font-bold ${active ? "text-red-700" : "text-slate-900"}`}>
+                              {zone.label}
+                            </span>
+                            {active ? (
+                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white text-sm font-bold">✓</span>
+                            ) : (
+                              <span className="h-7 w-7 rounded-full border-2 border-slate-200" aria-hidden />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            </>
+          ) : (
+            <>
+              {/* ── MANUAL / EDIT MODE: full needs + severity + zone ── */}
+
+              {/* Back to compact if voice was pre-filled */}
+              {voicePrefilled && editOpen && (
+                <button
+                  type="button"
+                  onClick={() => setEditOpen(false)}
+                  style={{ WebkitTapHighlightColor: "transparent" }}
+                  className="flex touch-manipulation items-center gap-1 text-xs font-semibold text-slate-400 active:text-slate-600"
+                >
+                  ← आवाज़ वाले जवाब पर वापस जाएं
+                </button>
+              )}
+
+              {/* Needs */}
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  क्या चाहिए / What is needed
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {NEED_OPTIONS.map((opt) => {
+                    const active = needs.includes(opt.value);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        disabled={routeBlocked}
+                        onClick={() => toggleNeed(opt.value)}
+                        aria-pressed={active}
+                        style={{ WebkitTapHighlightColor: "transparent" }}
+                        className={`flex min-h-[80px] touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                          active
+                            ? "border-red-600 bg-red-600 text-white"
+                            : "border-slate-200 bg-white text-slate-700 active:bg-slate-50"
+                        }`}
+                      >
+                        <span className="text-2xl leading-none">{opt.emoji}</span>
+                        <span className="text-base font-bold leading-tight">{opt.hindi}</span>
+                        <span className={`text-[10px] font-semibold uppercase tracking-wide ${active ? "text-red-100" : "text-slate-400"}`}>{opt.label}</span>
                       </button>
                     );
                   })}
                 </div>
-              </div>
-            ))}
 
-          </section>
+                <div className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    disabled={routeBlocked}
+                    onClick={() => setSeverity("medium")}
+                    aria-pressed={severity === "medium"}
+                    style={{ WebkitTapHighlightColor: "transparent" }}
+                    className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      severity === "medium"
+                        ? "border-amber-500 bg-amber-50"
+                        : "border-slate-200 bg-white active:bg-slate-50"
+                    }`}
+                  >
+                    <span className="text-2xl">⚠️</span>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">मदद चाहिए</div>
+                      <div className="text-[11px] text-slate-500">People need help — not urgent</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={routeBlocked}
+                    onClick={() => setSeverity("critical")}
+                    aria-pressed={severity === "critical"}
+                    style={{ WebkitTapHighlightColor: "transparent" }}
+                    className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                      severity === "critical"
+                        ? "border-red-600 bg-red-50"
+                        : "border-slate-200 bg-white active:bg-slate-50"
+                    }`}
+                  >
+                    <span className="text-2xl">🔴</span>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">जान खतरे में है</div>
+                      <div className="text-[11px] text-slate-500">Lives at risk — act now</div>
+                    </div>
+                  </button>
+                </div>
+              </section>
 
-          {/* C — Route-blocked toggle */}
+              {/* Zone picker */}
+              <section>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  अपना इलाका चुनें / Select your area
+                </p>
+                {(["Thrissur", "Ernakulam"] as const).map((district) => (
+                  <div key={district} className="mt-2">
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
+                      {district}
+                    </p>
+                    <div className="space-y-1.5">
+                      {grouped[district].map((zone) => {
+                        const active = zoneId === zone.id;
+                        return (
+                          <button
+                            key={zone.id}
+                            type="button"
+                            onClick={() => pickZone(zone.id)}
+                            aria-pressed={active}
+                            style={{ WebkitTapHighlightColor: "transparent" }}
+                            className={`flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
+                              active
+                                ? "border-red-600 bg-red-50"
+                                : "border-slate-200 bg-white active:bg-slate-50"
+                            }`}
+                          >
+                            <span className={`text-sm font-semibold ${active ? "text-red-700" : "text-slate-900"}`}>
+                              {zone.label}
+                            </span>
+                            {active && <span className="text-base text-red-600" aria-hidden>✓</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </section>
+            </>
+          )}
+
+          {/* Route-blocked toggle — always visible */}
           <section>
             <button
               type="button"
