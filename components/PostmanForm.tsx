@@ -18,11 +18,11 @@ type VoiceState = "idle" | "listening" | "processing" | "error";
 // ─── Constants ───────────────────────────────────────────────────────────────
 const POSTMAN_KEY = "postresilience.postman.name";
 
-const NEED_OPTIONS: { value: Need; label: string; emoji: string }[] = [
-  { value: "food",       label: "FOOD",       emoji: "🍚" },
-  { value: "medicine",   label: "MEDICINE",   emoji: "💊" },
-  { value: "cash",       label: "CASH",       emoji: "💵" },
-  { value: "evacuation", label: "EVACUATION", emoji: "🚨" },
+const NEED_OPTIONS: { value: Need; label: string; hindi: string; emoji: string }[] = [
+  { value: "food",       label: "FOOD",       hindi: "खाना",   emoji: "🍚" },
+  { value: "medicine",   label: "MEDICINE",   hindi: "दवाई",   emoji: "💊" },
+  { value: "cash",       label: "CASH",       hindi: "पैसे",   emoji: "💵" },
+  { value: "evacuation", label: "EVACUATION", hindi: "बचाओ",  emoji: "🚨" },
 ];
 
 type Zone = {
@@ -104,17 +104,36 @@ function safeEncode(lat: number, lng: number): {
   }
 }
 
-// Devanagari + romanized critical signal check.
-// Upgrades heuristic "medium" to "critical" when the server-side keyword list
-// (English/romanized only) can't match Devanagari speech output.
+// Devanagari + romanized + English disaster signal check.
+// Covers all major disaster types a postman might speak:
+// flood, earthquake, fire, heat wave, cyclone, landslide, storm.
 function transcriptIsCritical(t: string): boolean {
   const signals = [
+    // Devanagari — disaster types
+    "भूकंप", "बाढ़", "बाढ", "लू", "आग", "तूफान", "सुनामी",
+    "भूस्खलन", "चक्रवात",
+    // Devanagari — distress
     "मर", "जान", "खतरा", "बचाओ", "फंसे", "फंसा", "डूब",
-    "पानी", "बाढ़", "बाढ", "इमरजेंसी", "मदद", "निकालो",
-    "संकट", "तुरंत", "आपदा",
+    "पानी", "इमरजेंसी", "मदद", "निकालो", "संकट", "तुरंत", "आपदा",
+    // Romanized Hindi — disaster types
+    "bhukamp", "bhoochal",  // earthquake
+    "baadh", "badh",        // flood
+    "toofan", "tufan",      // storm
+    "aandhi",               // dust storm
+    "aag",                  // fire
+    "lu", "loo",            // heat wave
+    "tsunami", "sunami",
+    "chakravat", "cyclone",
+    "bhuskhalan",           // landslide
+    // Romanized Hindi — distress
     "bachao", "bachaao", "khatra", "jaan", "doob", "paani",
-    "pani", "flood", "trapped", "rescue", "evacuation", "emergency",
-    "dying", "danger", "stranded", "urgent",
+    "pani", "nikaalo", "sankat",
+    // English — disaster types
+    "flood", "earthquake", "fire", "heat wave", "heatwave",
+    "cyclone", "tsunami", "landslide", "storm", "tornado",
+    // English — distress
+    "trapped", "rescue", "evacuation", "emergency",
+    "dying", "danger", "stranded", "urgent", "critical",
   ];
   const lower = t.toLowerCase();
   return signals.some((k) => lower.includes(k));
@@ -754,7 +773,7 @@ export default function PostmanForm() {
           {/* A — Needs */}
           <section>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-              What is needed
+              क्या चाहिए / What is needed
             </p>
             <div className="grid grid-cols-2 gap-2">
               {NEED_OPTIONS.map((opt) => {
@@ -767,55 +786,57 @@ export default function PostmanForm() {
                     onClick={() => toggleNeed(opt.value)}
                     aria-pressed={active}
                     style={{ WebkitTapHighlightColor: "transparent" }}
-                    className={`flex min-h-[76px] touch-manipulation flex-col items-center justify-center gap-1 rounded-xl border-2 px-3 py-4 text-sm font-bold uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    className={`flex min-h-[80px] touch-manipulation flex-col items-center justify-center gap-0.5 rounded-xl border-2 px-3 py-3 transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                       active
                         ? "border-red-600 bg-red-600 text-white"
                         : "border-slate-200 bg-white text-slate-700 active:bg-slate-50"
                     }`}
                   >
                     <span className="text-2xl leading-none">{opt.emoji}</span>
-                    <span>{opt.label}</span>
+                    <span className="text-base font-bold leading-tight">{opt.hindi}</span>
+                    <span className={`text-[10px] font-semibold uppercase tracking-wide ${active ? "text-red-100" : "text-slate-400"}`}>{opt.label}</span>
                   </button>
                 );
               })}
             </div>
 
             <div className="mt-3 space-y-2">
-              {(
-                [
-                  {
-                    val: "medium" as Severity,
-                    emoji: "⚠️",
-                    label: "People need help — not urgent",
-                    active: severity === "medium",
-                    activeClass: "border-amber-500 bg-amber-50",
-                  },
-                  {
-                    val: "critical" as Severity,
-                    emoji: "🔴",
-                    label: "Lives at risk — act now",
-                    active: severity === "critical",
-                    activeClass: "border-red-600 bg-red-50",
-                  },
-                ] as const
-              ).map((s) => (
-                <button
-                  key={s.val}
-                  type="button"
-                  disabled={routeBlocked}
-                  onClick={() => setSeverity(s.val)}
-                  aria-pressed={s.active}
-                  style={{ WebkitTapHighlightColor: "transparent" }}
-                  className={`flex min-h-[56px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                    s.active
-                      ? s.activeClass
-                      : "border-slate-200 bg-white active:bg-slate-50"
-                  }`}
-                >
-                  <span className="text-2xl">{s.emoji}</span>
-                  <span className="text-sm font-semibold text-slate-900">{s.label}</span>
-                </button>
-              ))}
+              <button
+                type="button"
+                disabled={routeBlocked}
+                onClick={() => setSeverity("medium")}
+                aria-pressed={severity === "medium"}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  severity === "medium"
+                    ? "border-amber-500 bg-amber-50"
+                    : "border-slate-200 bg-white active:bg-slate-50"
+                }`}
+              >
+                <span className="text-2xl">⚠️</span>
+                <div>
+                  <div className="text-sm font-bold text-slate-900">मदद चाहिए</div>
+                  <div className="text-[11px] text-slate-500">People need help — not urgent</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                disabled={routeBlocked}
+                onClick={() => setSeverity("critical")}
+                aria-pressed={severity === "critical"}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className={`flex min-h-[60px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                  severity === "critical"
+                    ? "border-red-600 bg-red-50"
+                    : "border-slate-200 bg-white active:bg-slate-50"
+                }`}
+              >
+                <span className="text-2xl">🔴</span>
+                <div>
+                  <div className="text-sm font-bold text-slate-900">जान खतरे में है</div>
+                  <div className="text-[11px] text-slate-500">Lives at risk — act now</div>
+                </div>
+              </button>
             </div>
           </section>
 
@@ -879,9 +900,12 @@ export default function PostmanForm() {
                   : "border-slate-200 bg-white active:bg-slate-50"
               }`}
             >
-              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <div className="flex items-center gap-2">
                 <span className="text-xl">🚫</span>
-                <span>Cannot reach this area</span>
+                <div>
+                  <div className="text-sm font-bold text-slate-900">रास्ता बंद है</div>
+                  <div className="text-[11px] text-slate-500">Cannot reach this area</div>
+                </div>
               </div>
               <span
                 className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
@@ -898,7 +922,7 @@ export default function PostmanForm() {
             </button>
             {routeBlocked && (
               <p className="mt-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
-                Submitting as coverage gap — needs &amp; severity disabled.
+                रास्ता बंद — coverage gap के रूप में submit होगा।
               </p>
             )}
           </section>
