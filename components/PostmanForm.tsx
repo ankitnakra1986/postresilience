@@ -220,7 +220,24 @@ export default function PostmanForm() {
     }
   };
 
-  // ── Voice capture
+  // Client-side critical override — catches Devanagari signals the server-side
+// heuristic misses because it only checks romanized/English keywords.
+function transcriptIsCritical(t: string): boolean {
+  const critical = [
+    // Devanagari
+    "मर", "जान", "खतरा", "बचाओ", "बचाओ", "फंसे", "फंसा", "डूब",
+    "पानी", "बाढ़", "बाढ", "इमरजेंसी", "मदद", "निकालो", "बचाओ",
+    "संकट", "तुरंत", "आपदा",
+    // Romanized / English (mirror of server list for safety)
+    "bachao", "bachaao", "khatra", "jaan", "mar ", "doob", "paani",
+    "pani", "flood", "trapped", "rescue", "evacuation", "emergency",
+    "dying", "danger", "stranded", "urgent",
+  ];
+  const lower = t.toLowerCase();
+  return critical.some((k) => lower.includes(k));
+}
+
+// ── Voice capture
   const startVoice = () => {
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
@@ -260,8 +277,21 @@ export default function PostmanForm() {
             );
           if (valid.length > 0) setNeeds(valid);
         }
-        if (data.severity === "critical" || data.severity === "medium") {
-          setSeverity(data.severity);
+        // If the server heuristic returned medium but the transcript contains
+        // Devanagari critical signals (e.g. "मर रहे हैं", "बाढ़", "खतरा"),
+        // upgrade to critical on the client side.
+        const serverSeverity =
+          data.severity === "critical" || data.severity === "medium"
+            ? data.severity
+            : null;
+        if (serverSeverity) {
+          setSeverity(
+            serverSeverity === "medium" && transcriptIsCritical(transcript)
+              ? "critical"
+              : serverSeverity
+          );
+        } else if (transcriptIsCritical(transcript)) {
+          setSeverity("critical");
         }
         setVoiceState("idle");
       } catch (err) {
