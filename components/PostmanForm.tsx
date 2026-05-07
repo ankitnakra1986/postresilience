@@ -153,8 +153,6 @@ export default function PostmanForm() {
     digipin: string;
     blocked: boolean;
   } | null>(null);
-  const [countdown, setCountdown] = useState(10);
-
   const selectedZone = zoneId
     ? ZONES.find((z) => z.id === zoneId) ?? null
     : null;
@@ -184,23 +182,6 @@ export default function PostmanForm() {
     };
   }, []);
 
-  // ── Screen 3 countdown
-  useEffect(() => {
-    if (screen !== 3) return;
-    setCountdown(10);
-    const interval = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(interval);
-          handleStartOver();
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screen]);
 
   // ── Postman name
   const lockPostman = () => {
@@ -665,9 +646,6 @@ export default function PostmanForm() {
               </div>
             </div>
 
-            <p className="mt-4 text-xs text-emerald-50/80">
-              Returning to form in {countdown}s…
-            </p>
           </div>
 
           {/* Actions */}
