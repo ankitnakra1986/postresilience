@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { encodeDigiPin, isValidDigiPin, formatDigiPin } from "@/lib/digipin";
+import { encodeDigiPin } from "@/lib/digipin";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Need = "food" | "medicine" | "cash" | "evacuation";
@@ -141,11 +141,6 @@ export default function PostmanForm() {
   const [zoneId, setZoneId] = useState<string | null>(null);
   const [routeBlocked, setRouteBlocked] = useState(false);
 
-  // Manual DigiPin entry (Screen 2 advanced option)
-  const [manualDigipinOpen, setManualDigipinOpen] = useState(false);
-  const [manualDigipinDraft, setManualDigipinDraft] = useState("");
-  const manualDigipinValid =
-    manualDigipinDraft.length > 0 && isValidDigiPin(manualDigipinDraft);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
@@ -164,12 +159,9 @@ export default function PostmanForm() {
     ? ZONES.find((z) => z.id === zoneId) ?? null
     : null;
 
-  // Location is resolved: either from zone picker OR valid manual DigiPin
-  const hasLocation = manualDigipinValid || !!zoneId;
-
   const canSubmit =
     !!postman.trim() &&
-    hasLocation &&
+    !!zoneId &&
     (routeBlocked || (needs.length > 0 && severity !== null));
 
   // ── Mount
@@ -329,17 +321,7 @@ export default function PostmanForm() {
 
   const pickZone = (id: string) => {
     setZoneId(id);
-    // Picking a zone clears the manual DigiPin — they're mutually exclusive
-    setManualDigipinDraft("");
-    setManualDigipinOpen(false);
     setSubmitError("");
-  };
-
-  const onManualDigipinChange = (raw: string) => {
-    const formatted = formatDigiPin(raw);
-    setManualDigipinDraft(formatted);
-    // Picking a manual DigiPin clears the zone selection
-    if (formatted.length > 0) setZoneId(null);
   };
 
   // ── Submit
@@ -348,27 +330,10 @@ export default function PostmanForm() {
     setSubmitError("");
     if (!canSubmit) return;
 
-    let digipin: string;
-    let lat: number;
-    let lng: number;
-    let zoneName: string;
+    if (!selectedZone) return;
 
-    if (manualDigipinValid) {
-      // Use the manually-entered DigiPin directly; coords decoded from it
-      digipin = manualDigipinDraft.toUpperCase();
-      // Approximate coords: API will decode from DigiPin server-side
-      lat = FALLBACK_LAT;
-      lng = FALLBACK_LNG;
-      zoneName = `DigiPin ${digipin}`;
-    } else if (selectedZone) {
-      const encoded = safeEncode(selectedZone.lat, selectedZone.lng);
-      digipin = encoded.digipin;
-      lat = encoded.lat;
-      lng = encoded.lng;
-      zoneName = `${selectedZone.label}, ${selectedZone.district}`;
-    } else {
-      return;
-    }
+    const { digipin, lat, lng } = safeEncode(selectedZone.lat, selectedZone.lng);
+    const zoneName = `${selectedZone.label}, ${selectedZone.district}`;
 
     const submittedNeeds: string[] = routeBlocked ? ["blocked"] : needs;
     const submittedSeverity: Severity = routeBlocked
@@ -425,8 +390,6 @@ export default function PostmanForm() {
     setVoiceApiError("");
     setSubmitError("");
     setConfirmation(null);
-    setManualDigipinDraft("");
-    setManualDigipinOpen(false);
     setScreen(voiceSupported ? 1 : 2);
   };
 
@@ -922,53 +885,6 @@ export default function PostmanForm() {
               </div>
             ))}
 
-            {/* Manual DigiPin entry */}
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => setManualDigipinOpen((v) => !v)}
-                style={{ WebkitTapHighlightColor: "transparent" }}
-                className="flex touch-manipulation items-center gap-1.5 text-xs font-semibold text-slate-400 active:text-slate-600"
-              >
-                <span>{manualDigipinOpen ? "▾" : "▸"}</span>
-                <span>Enter DigiPin manually</span>
-              </button>
-
-              {manualDigipinOpen && (
-                <div className="mt-2">
-                  <input
-                    type="text"
-                    inputMode="text"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    autoCapitalize="characters"
-                    spellCheck={false}
-                    placeholder="e.g. M3F-K9C-72L8"
-                    maxLength={12}
-                    value={manualDigipinDraft}
-                    onChange={(e) => onManualDigipinChange(e.target.value)}
-                    className={`block w-full rounded-xl border-2 px-4 py-3 font-mono text-sm font-semibold uppercase tracking-widest text-slate-900 placeholder:font-sans placeholder:text-sm placeholder:font-normal placeholder:tracking-normal placeholder:text-slate-400 focus:outline-none focus:ring-2 ${
-                      manualDigipinDraft.length === 0
-                        ? "border-slate-200 bg-white focus:border-red-500 focus:ring-red-200"
-                        : manualDigipinValid
-                        ? "border-emerald-500 bg-emerald-50 focus:border-emerald-600 focus:ring-emerald-200"
-                        : "border-red-300 bg-red-50 focus:border-red-500 focus:ring-red-200"
-                    }`}
-                  />
-                  {manualDigipinDraft.length > 0 && (
-                    <p
-                      className={`mt-1 text-[11px] font-medium ${
-                        manualDigipinValid ? "text-emerald-700" : "text-red-600"
-                      }`}
-                    >
-                      {manualDigipinValid
-                        ? "✓ Valid DigiPin — will use this location"
-                        : "Invalid format — must be 10 chars, e.g. M3F-K9C-72L8"}
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
           </section>
 
           {/* C — Route-blocked toggle */}
