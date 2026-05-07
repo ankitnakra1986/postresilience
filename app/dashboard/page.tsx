@@ -46,6 +46,7 @@ export default function DashboardPage() {
 
   const postOffices = postOfficesData as PostOffice[];
 
+  // Initial load
   useEffect(() => {
     let cancelled = false;
     fetch("/api/reports")
@@ -63,9 +64,25 @@ export default function DashboardPage() {
         setError(e instanceof Error ? e.message : "Failed to load reports");
         setLoading(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
+  }, []);
+
+  // Poll every 5 s — silently updates dots on the map when a new postman
+  // report comes in. Only replaces state when count actually changes so
+  // the map doesn't flicker on every tick.
+  useEffect(() => {
+    const poll = setInterval(() => {
+      fetch("/api/reports")
+        .then((r) => r.ok ? r.json() : null)
+        .then((data: Report[] | null) => {
+          if (!Array.isArray(data)) return;
+          setReports((prev) =>
+            data.length !== prev.length ? data : prev
+          );
+        })
+        .catch(() => {/* silent — don't show error on background poll */});
+    }, 5000);
+    return () => clearInterval(poll);
   }, []);
 
   useEffect(() => {
