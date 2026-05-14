@@ -9,28 +9,47 @@ Partnership: **India Post + AWS + Ankit Nakra (AI Product)**
 
 ---
 
-## Screenshots
+## Demo Walkthrough
 
-| Screen 1 — Postman Field Reporting | Screen 2 — SDMA Live Dashboard |
-|---|---|
-| ![Postman voice UI — tap mic, speak in Hindi/English/Malayalam](public/screenshots/screen1-postman-ui.png) | ![SDMA live map — Kerala flood response, RED/ORANGE/GREEN priority dots](public/screenshots/screen2-sdma-dashboard.png) |
-| Voice-first reporting · Hindi · English · Malayalam | Live Leaflet map · Priority triage · AI agent panel |
+The demo is structured in 5 parts — each maps to a section of the architecture diagram below.
+
+▶ **[Watch Demo Walkthrough](#)** ← video coming soon
 
 ---
 
-## Demo Walkthrough
+### Part 2 — Postman Mobile UI
+*Architecture box: Postman Mobile UI (top-left)*
 
-The demo is structured in 5 parts — each maps to a section of the architecture diagram below. Watch them in sequence or jump to the part you care about.
+![Postman voice UI — tap mic, speak in Hindi, English, or Malayalam](public/screenshots/part2-postman-ui.png)
 
-| Part | Maps to | What it shows |
-|---|---|---|
-| **1 — Architecture Overview** | Full diagram | System end-to-end — sets up the 4 sections that follow |
-| **2 — Postman Mobile UI** | Box 1 (top-left) | Voice reporting in Hindi/English — tap mic, speak, done |
-| **3 — AI Extraction Layer** | Box 2 (top-right) | Claude Sonnet 3.5 extracts needs + severity + location; heuristic fallback if Bedrock is down |
-| **4 — SDMA Live Dashboard** | Box 3 (bottom-left) | Real-time Leaflet map — RED/ORANGE/GREEN priority, updates every 5 seconds |
-| **5 — 4-Step AI Agent** | Box 4 (bottom-right) | Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief |
+Voice-first. Postman taps mic, speaks in Hindi / Hinglish / English / Malayalam. No forms to fill. Fallback: type manually.
 
-▶ **[Watch Demo Walkthrough](#)** ← video coming soon
+---
+
+### Part 3 — Field Report Checklist
+*Architecture box: AI Extraction Layer (top-right)*
+
+![Field report checklist — select needs, severity, and location in 3 taps](public/screenshots/part3-field-checklist.png)
+
+Structured 3-step checklist: needs (FOOD / MEDICINE / CASH / EVACUATION) + urgency + DigiPin location. Works offline. AI extracts and packages the report.
+
+---
+
+### Part 4 — SDMA Live Dashboard
+*Architecture box: SDMA Dashboard (bottom-left)*
+
+![SDMA live map — Kerala flood response with RED/ORANGE/GREEN priority dots and district coverage bar](public/screenshots/screen2-sdma-dashboard.png)
+
+Real-time Leaflet map. Colour-coded by severity. Post office status overlay. Coverage completeness bar. Updates every 5 seconds — no refresh needed.
+
+---
+
+### Part 5 — 4-Step AI Agent
+*Architecture box: AWS Bedrock Agent (bottom-right)*
+
+![AI agent panel — Demand Sensing, Capacity Mapping, Service Packaging, SDMA Brief — all DONE](public/screenshots/part5-ai-agent.png)
+
+4 streamed steps: Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief. Generates a prioritised dispatch plan and 5-line situation report. 20 days → 6 hours.
 
 ---
 
