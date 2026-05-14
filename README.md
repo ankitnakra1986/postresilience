@@ -17,6 +17,13 @@ The demo is structured in 5 parts — each maps to a section of the architecture
 
 ---
 
+### Part 1 — Architecture Overview
+*The full system diagram — see the [Architecture](#architecture) section below*
+
+Start here. The architecture diagram shows 4 boxes — each box is one part of the demo. Watch Part 1 to orient yourself, then follow Parts 2–5 in sequence.
+
+---
+
 ### Part 2 — Postman Mobile UI
 *Architecture box: Postman Mobile UI (top-left)*
 
