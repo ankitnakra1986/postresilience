@@ -9,6 +9,22 @@ Partnership: **India Post + AWS + Ankit Nakra (AI Product)**
 
 ---
 
+## Demo Walkthrough
+
+The demo is structured in 5 parts — each maps to a section of the architecture diagram below. Watch them in sequence or jump to the part you care about.
+
+| Part | Maps to | What it shows |
+|---|---|---|
+| **1 — Architecture Overview** | Full diagram | System end-to-end — sets up the 4 sections that follow |
+| **2 — Postman Mobile UI** | Box 1 (top-left) | Voice reporting in Hindi/English — tap mic, speak, done |
+| **3 — AI Extraction Layer** | Box 2 (top-right) | Claude Sonnet 3.5 extracts needs + severity + location; heuristic fallback if Bedrock is down |
+| **4 — SDMA Live Dashboard** | Box 3 (bottom-left) | Real-time Leaflet map — RED/ORANGE/GREEN priority, updates every 5 seconds |
+| **5 — 4-Step AI Agent** | Box 4 (bottom-right) | Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief |
+
+▶ **[Watch Demo Walkthrough](#)** ← video coming soon
+
+---
+
 ## The Problem
 
 When Kerala flooded in 2018:
