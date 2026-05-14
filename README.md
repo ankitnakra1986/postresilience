@@ -9,6 +9,15 @@ Partnership: **India Post + AWS + Ankit Nakra (AI Product)**
 
 ---
 
+## Screenshots
+
+| Screen 1 — Postman Field Reporting | Screen 2 — SDMA Live Dashboard |
+|---|---|
+| ![Postman voice UI — tap mic, speak in Hindi/English/Malayalam](public/screenshots/screen1-postman-ui.png) | ![SDMA live map — Kerala flood response, RED/ORANGE/GREEN priority dots](public/screenshots/screen2-sdma-dashboard.png) |
+| Voice-first reporting · Hindi · English · Malayalam | Live Leaflet map · Priority triage · AI agent panel |
+
+---
+
 ## Demo Walkthrough
 
 The demo is structured in 5 parts — each maps to a section of the architecture diagram below. Watch them in sequence or jump to the part you care about.
