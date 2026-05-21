@@ -44,6 +44,7 @@ type IncomingReport = {
   severity?: unknown;
   photoFlag?: unknown;
   postman?: unknown;
+  safeZone?: unknown;
 };
 
 export async function POST(req: NextRequest) {
@@ -73,8 +74,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Select at least one need" }, { status: 400 });
   }
 
+  const safeZone =
+    body.safeZone === true || body.safeZone === "true" || body.safeZone === 1;
   const severityRaw = typeof body.severity === "string" ? body.severity : "";
-  const severity = VALID_SEVERITY.has(severityRaw) ? severityRaw : inferSeverity(needs);
+  let severity = VALID_SEVERITY.has(severityRaw) ? severityRaw : inferSeverity(needs);
+  if (safeZone) {
+    severity = severity === "critical" ? "critical" : "medium";
+  }
 
   let lat: number;
   let lng: number;
@@ -107,6 +113,7 @@ export async function POST(req: NextRequest) {
     severity,
     district,
     photoFlag,
+    ...(safeZone ? { safeZone: true } : {}),
   };
 
   // Demo mode: validate + echo the report back, but don't mutate the live feed.

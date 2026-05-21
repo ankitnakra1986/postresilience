@@ -21,8 +21,8 @@ type Step = {
   hint: string;
 };
 
-const STEPS: Step[] = [
-  { key: "demand", title: "1. Demand Sensing", hint: "Ranking 15 postman reports by urgency" },
+const BASE_STEPS: Step[] = [
+  { key: "demand", title: "1. Demand Sensing", hint: "" },
   { key: "capacity", title: "2. Capacity Mapping", hint: "Matching demand to operational post offices" },
   { key: "package", title: "3. Service Packaging", hint: "Building dispatch plan per household" },
   { key: "brief", title: "4. SDMA Brief", hint: "Composing 5-line situation report" },
@@ -116,6 +116,12 @@ export default function AgentPanel({
     setPhase("done");
   }
 
+  const steps = BASE_STEPS.map((s) =>
+    s.key === "demand"
+      ? { ...s, hint: `Ranking ${reports.length} postman report${reports.length === 1 ? "" : "s"} by urgency` }
+      : s
+  );
+
   const demandRanked = [...reports]
     .map((r) => ({ ...r, service: primaryService(r.needs) }))
     .sort((a, b) => {
@@ -170,7 +176,7 @@ export default function AgentPanel({
 
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <ol className="space-y-3">
-          {STEPS.map((step) => {
+          {steps.map((step) => {
             const status = stepStatus[step.key];
             return (
               <li
@@ -279,15 +285,36 @@ function ImpactDashboard({
     <div className="mt-5 space-y-3">
       <div className="rounded-xl bg-emerald-600 p-5 text-white shadow-lg">
         <div className="text-[10px] font-semibold uppercase tracking-[0.15em] text-emerald-100">
-          Time saved vs. official PDNA
+          PostResilience vs. Official PDNA (UNDP, Kerala 2018)
         </div>
-        <div className="mt-2 flex items-baseline gap-2 sm:gap-3">
-          <div className="text-3xl font-black leading-none sm:text-4xl">20 days</div>
-          <div className="text-2xl font-light text-emerald-200 sm:text-3xl">→</div>
-          <div className="text-3xl font-black leading-none sm:text-4xl">6 hours</div>
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between rounded-lg bg-white/10 px-3 py-2">
+            <span className="text-xs font-medium text-emerald-100">Ground truth</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-red-200 line-through">20 days</span>
+              <span className="text-emerald-200">→</span>
+              <span className="text-sm font-black text-white">6 hours</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-white/10 px-3 py-2">
+            <span className="text-xs font-medium text-emerald-100">Experts needed</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-red-200 line-through">76</span>
+              <span className="text-emerald-200">→</span>
+              <span className="text-sm font-black text-white">500 postmen</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between rounded-lg bg-white/10 px-3 py-2">
+            <span className="text-xs font-medium text-emerald-100">Villages reachable</span>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-red-200 line-through">120</span>
+              <span className="text-emerald-200">→</span>
+              <span className="text-sm font-black text-white">1,664</span>
+            </div>
+          </div>
         </div>
-        <div className="mt-2 text-xs font-medium text-emerald-100">
-          80× faster · 76 expert-visits avoided
+        <div className="mt-2 text-[10px] font-medium text-emerald-200">
+          Already deployed. Already trusted. Already there.
         </div>
       </div>
 

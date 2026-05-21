@@ -8,6 +8,8 @@ export type Report = {
   severity: string;
   district: string;
   photoFlag?: boolean;
+  /** Demo: postman reports a stable / accessible pocket (safe, surakshit, green zone). */
+  safeZone?: boolean;
 };
 
 export type PostOffice = {

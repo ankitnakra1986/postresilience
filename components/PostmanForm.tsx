@@ -7,7 +7,7 @@ import {
   type FormEvent,
   type KeyboardEvent,
 } from "react";
-import { encodeDigiPin } from "@/lib/digipin";
+import { encodeDigiPin, inferKeralaDistrict } from "@/lib/digipin";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type Need = "food" | "medicine" | "cash" | "evacuation";
@@ -18,6 +18,8 @@ type VoiceState = "idle" | "listening" | "processing" | "error";
 // ─── Constants ───────────────────────────────────────────────────────────────
 const POSTMAN_KEY = "postresilience.postman.name";
 
+type GpsStatus = "idle" | "locating" | "done" | "error";
+
 const NEED_OPTIONS: { value: Need; label: string; hindi: string; emoji: string }[] = [
   { value: "food",       label: "FOOD",       hindi: "खाना",   emoji: "🍚" },
   { value: "medicine",   label: "MEDICINE",   hindi: "दवाई",   emoji: "💊" },
@@ -25,27 +27,18 @@ const NEED_OPTIONS: { value: Need; label: string; hindi: string; emoji: string }
   { value: "evacuation", label: "EVACUATION", hindi: "बचाओ",  emoji: "🚨" },
 ];
 
-type Zone = {
-  id: string;
-  label: string;
-  district: "Thrissur" | "Ernakulam";
-  lat: number;
-  lng: number;
-};
-
-const ZONES: Zone[] = [
-  { id: "irinjalakuda",    label: "Irinjalakuda",    district: "Thrissur",  lat: 10.345,  lng: 76.215  },
-  { id: "chalakudy",       label: "Chalakudy",       district: "Thrissur",  lat: 10.302,  lng: 76.336  },
-  { id: "north-thrissur",  label: "North Thrissur",  district: "Thrissur",  lat: 10.620,  lng: 76.220  },
-  { id: "east-thrissur",   label: "East Thrissur",   district: "Thrissur",  lat: 10.530,  lng: 76.380  },
-  { id: "ernakulam-town",  label: "Ernakulam Town",  district: "Ernakulam", lat: 9.9816,  lng: 76.2998 },
-  { id: "aluva",           label: "Aluva",           district: "Ernakulam", lat: 10.108,  lng: 76.354  },
-  { id: "south-ernakulam", label: "South Ernakulam", district: "Ernakulam", lat: 9.890,   lng: 76.320  },
-  { id: "west-ernakulam",  label: "West Ernakulam",  district: "Ernakulam", lat: 10.025,  lng: 76.170  },
-];
 
 const FALLBACK_LAT = 9.9816;
 const FALLBACK_LNG = 76.2998;
+
+// Kerala bounding box — demo GPS is clamped here so reports always plot on the Kerala map
+const KERALA_BOUNDS = { latMin: 8.2, latMax: 12.8, lngMin: 74.8, lngMax: 77.6 };
+function inKerala(lat: number, lng: number) {
+  return (
+    lat >= KERALA_BOUNDS.latMin && lat <= KERALA_BOUNDS.latMax &&
+    lng >= KERALA_BOUNDS.lngMin && lng <= KERALA_BOUNDS.lngMax
+  );
+}
 
 const NEED_CHIP_DARK: Record<Need, string> = {
   evacuation: "border-red-400/60 bg-red-500/20 text-red-100",
@@ -104,6 +97,77 @@ function safeEncode(lat: number, lng: number): {
   }
 }
 
+// Client-side needs extraction — runs as a fallback when the API heuristic
+// returns empty needs. Two layers:
+// 1. Explicit need words ("khane", "paani", "dawai" etc.)
+// 2. Disaster-context inference — when a postman says "flood ho gaye" or
+//    "garmi se pareshan hai" without naming needs, infer from disaster type.
+function clientExtractNeeds(t: string): Need[] {
+  const lower = t.toLowerCase();
+  const has = (kws: string[]) => kws.some((k) => lower.includes(k));
+  const result: Need[] = [];
+
+  // ── Layer 1: explicit need words ────────────────────────────────────────
+  if (
+    has([
+      "khana", "khaana", "khaane", "khane", "khaney",
+      "paani", "pani", "paanee", "paany", "paane",
+      "water", "food", "ration", "rashan", "raashan",
+      "bhojan", "anna", "anaaj", "anaj", "meal",
+      "bhukhaa", "bhukha", "hungry", "starving",
+      "peena", "piyenge", "khate", "khaate",
+      "पानी", "खाना", "खाने", "भोजन", "राशन", "भूखा",
+    ])
+  ) result.push("food");
+
+  if (
+    has([
+      "dawai", "dawaai", "dava", "davai", "dawa", "medicine", "medicines",
+      "doctor", "ilaaj", "tablet", "injection", "aspatal", "hospital",
+      "beemar", "bimar", "patient", "sick", "injured", "hurt", "medical",
+      "दवाई", "दवा", "डॉक्टर", "इलाज", "बीमार", "अस्पताल",
+    ])
+  ) result.push("medicine");
+
+  if (
+    has([
+      "paisa", "paise", "rupaye", "rupiya", "rupee", "rupees",
+      "cash", "money", "funds",
+      "पैसा", "पैसे", "रुपये",
+    ])
+  ) result.push("cash");
+
+  if (
+    has([
+      "evacuation", "evacuate", "rescue", "trapped", "phanse", "fasaye",
+      "fase", "fasna", "phans", "nikaalo", "stranded",
+      "bachao", "bachaao", "boat", "naav", "doob", "dooba", "drowning",
+      "बचाओ", "निकालो", "फंसे", "डूब", "नाव",
+    ])
+  ) result.push("evacuation");
+
+  // ── Layer 2: disaster-context inference (only when layer 1 found nothing) ─
+  // Postmen describe situations ("flood ho gaye", "garmi se pareshan") not
+  // need lists. Infer the most common relief needs for each disaster type.
+  if (result.length === 0) {
+    if (has(["flood", "floods", "baadh", "baarish", "बाढ़", "बाढ"])) {
+      result.push("food", "evacuation");
+    } else if (has(["earthquake", "bhukamp", "bhoochal", "भूकंप", "bhoochaal"])) {
+      result.push("food", "medicine", "evacuation");
+    } else if (has(["garmi", "tapish", "heat wave", "heatwave", "लू"])) {
+      result.push("medicine");
+    } else if (has(["cyclone", "toofan", "tufan", "aandhi", "storm", "तूफान"])) {
+      result.push("food", "evacuation");
+    } else if (has(["landslide", "bhuskhalan", "भूस्खलन"])) {
+      result.push("evacuation");
+    } else if (has([" aag ", " fire ", "आग"])) {
+      result.push("evacuation");
+    }
+  }
+
+  return result;
+}
+
 // Devanagari + romanized + English disaster signal check.
 // Covers all major disaster types a postman might speak:
 // flood, earthquake, fire, heat wave, cyclone, landslide, storm.
@@ -116,18 +180,20 @@ function transcriptIsCritical(t: string): boolean {
     "मर", "जान", "खतरा", "बचाओ", "फंसे", "फंसा", "डूब",
     "पानी", "इमरजेंसी", "मदद", "निकालो", "संकट", "तुरंत", "आपदा",
     // Romanized Hindi — disaster types
-    "bhukamp", "bhoochal",  // earthquake
-    "baadh", "badh",        // flood
-    "toofan", "tufan",      // storm
-    "aandhi",               // dust storm
-    "aag",                  // fire
-    "lu", "loo",            // heat wave
+    "bhukamp", "bhoochal",          // earthquake
+    "baadh",                        // flood (avoid "badh" — substring of "badhiya")
+    "toofan", "tufan",              // storm
+    "aandhi",                       // dust storm
+    " aag ", "aag hai",             // fire (space-padded to avoid false substrings)
+    "garmi", "tapish",              // heat wave (drop "garm" — too short)
+    "heat wave", "heatwave",        // heat wave (English)
     "tsunami", "sunami",
     "chakravat", "cyclone",
-    "bhuskhalan",           // landslide
+    "bhuskhalan",                   // landslide
     // Romanized Hindi — distress
-    "bachao", "bachaao", "khatra", "jaan", "doob", "paani",
-    "pani", "nikaalo", "sankat",
+    "bachao", "bachaao", "khatra", "doob",
+    "paani bhar", "paani aa", "pani bhar", "pani aa", // flood-water specific, not bare "paani"
+    "nikaalo", "sankat",
     // English — disaster types
     "flood", "earthquake", "fire", "heat wave", "heatwave",
     "cyclone", "tsunami", "landslide", "storm", "tornado",
@@ -137,6 +203,80 @@ function transcriptIsCritical(t: string): boolean {
   ];
   const lower = t.toLowerCase();
   return signals.some((k) => lower.includes(k));
+}
+
+/** Demo: postman marks a stable / accessible pocket — drives lime dot on SDMA map. */
+function transcriptIndicatesSafeZone(t: string): boolean {
+  const lower = t.toLowerCase().normalize("NFC");
+  if (/\bसुरक्षित\b/.test(t)) return true;
+  if (/\bgreen[\s-]*zone\b/i.test(t) || /\bgreenzone\b/i.test(t)) return true;
+  if (
+    lower.includes("surakshit") ||
+    lower.includes("surakshith") ||
+    lower.includes("surakshat") ||
+    lower.includes("surkshit")
+  ) {
+    return true;
+  }
+  if (/\bsafe\b/i.test(t) && !/\bunsafe\b/i.test(t)) return true;
+  if (/\bsecure\b/i.test(t) && !/\binsecure\b/i.test(t)) return true;
+  return false;
+}
+
+/** One-line demo narrative: proactive "sense" without pretending full NLP. */
+function fieldReadInsight(
+  transcript: string,
+  needs: Need[],
+  severity: Severity | null
+): { tone: "routine" | "relay" | "escalate" | "scan" | "safe"; lines: string } | null {
+  const trimmed = transcript.trim();
+  if (!trimmed) return null;
+
+  if (
+    transcriptIndicatesSafeZone(transcript) &&
+    !(severity === "critical" || transcriptIsCritical(transcript))
+  ) {
+    return {
+      tone: "safe",
+      lines:
+        "AI field read: Safe / green-pocket signal — lime dot on SDMA map for routing. · सुरक्षित इलाका",
+    };
+  }
+
+  const critical = severity === "critical" || transcriptIsCritical(transcript);
+  if (critical) {
+    return {
+      tone: "escalate",
+      lines:
+        "AI field read: Escalation pattern — route to priority queue. · तत्काल ध्यान दें",
+    };
+  }
+  if (needs.length > 0) {
+    return {
+      tone: "relay",
+      lines:
+        "AI field read: Relief cues packaged for SDMA dispatch (keyword + context rules). · राहत संकेत टैग",
+    };
+  }
+
+  const t = trimmed.toLowerCase();
+  const routinePhrase =
+    /sab (badhiya|badhiyaa|theek|theekh|acch|achha|achhe)|bahut acch|all good|everything is (fine|ok)|normal routine|koi (dikkat|problem) nahi|no (issue|problem)|har[ea] bhara|hara bhara/i.test(
+      t
+    );
+  if (routinePhrase) {
+    return {
+      tone: "routine",
+      lines:
+        "AI field read: Routine / green status — no auto relief match (valuable for proactive heatmaps: \"where we heard all-clear\"). · स्थिति सामान्य",
+    };
+  }
+
+  return {
+    tone: "scan",
+    lines:
+      "AI field read: No strong relief keyword match — confirm on next screen if anything changed. · पुष्टि करें",
+  };
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -152,38 +292,48 @@ export default function PostmanForm() {
   const [voiceTranscript, setVoiceTranscript] = useState("");
   const [voiceError, setVoiceError] = useState("");
   const [voiceApiError, setVoiceApiError] = useState("");
+  const [showPermTip, setShowPermTip] = useState(false);
+  const [showTypeInput, setShowTypeInput] = useState(false);
+  const [typeDraft, setTypeDraft] = useState("");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const gotResultRef = useRef(false);
+  // Tracks how many lang fallbacks we've attempted in current session
+  const langAttemptRef = useRef(0);
 
   const [needs, setNeeds] = useState<Need[]>([]);
   const [severity, setSeverity] = useState<Severity | null>(null);
-  const [zoneId, setZoneId] = useState<string | null>(null);
+  /** Voice / narrative: reports an accessible pocket — lime marker on dashboard. */
+  const [safeZoneReport, setSafeZoneReport] = useState(false);
   const [routeBlocked, setRouteBlocked] = useState(false);
 
+  const [gpsStatus, setGpsStatus] = useState<GpsStatus>("idle");
+  const [gpsLat, setGpsLat]       = useState<number | null>(null);
+  const [gpsLng, setGpsLng]       = useState<number | null>(null);
+  const [gpsDigipin, setGpsDigipin] = useState<string | null>(null);
+
+  const [photoDataUrl, setPhotoDataUrl] = useState<string | null>(null);
+  const [photoFileName, setPhotoFileName] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
+
 
   // Screen 2: whether full needs/severity editor is expanded (only matters
   // when voice already pre-filled them — default collapsed to show zone hero)
   const [editOpen, setEditOpen] = useState(false);
 
   const [confirmation, setConfirmation] = useState<{
-    zone: Zone | null;
     zoneName: string;
+    district: string;
     needs: Need[];
     severity: Severity;
     digipin: string;
     blocked: boolean;
+    photoFileName: string | null;
+    safeZone: boolean;
   } | null>(null);
-  const selectedZone = zoneId
-    ? ZONES.find((z) => z.id === zoneId) ?? null
-    : null;
 
-  const canSubmit =
-    !!postman.trim() &&
-    !!zoneId &&
-    (routeBlocked || (needs.length > 0 && severity !== null));
 
   // ── Mount
   useEffect(() => {
@@ -205,16 +355,54 @@ export default function PostmanForm() {
     };
   }, []);
 
+  // ── GPS — trigger when user reaches Screen 2
+  useEffect(() => {
+    if (screen !== 2) return;
+    if (gpsStatus === "done" || gpsStatus === "locating") return;
+    if (!navigator.geolocation) {
+      setGpsStatus("error");
+      return;
+    }
+    setGpsStatus("locating");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        // If device is outside Kerala (demo elsewhere), fall back to Ernakulam centre
+        const rawLat = pos.coords.latitude;
+        const rawLng = pos.coords.longitude;
+        const lat = inKerala(rawLat, rawLng) ? rawLat : FALLBACK_LAT;
+        const lng = inKerala(rawLat, rawLng) ? rawLng : FALLBACK_LNG;
+        try {
+          const pin = encodeDigiPin(lat, lng);
+          setGpsLat(lat);
+          setGpsLng(lng);
+          setGpsDigipin(pin);
+          setGpsStatus("done");
+        } catch {
+          setGpsStatus("error");
+        }
+      },
+      () => setGpsStatus("error"),
+      { timeout: 10000, maximumAge: 60000, enableHighAccuracy: false }
+    );
+  }, [screen, gpsStatus]);
+
 
   // ── Postman name
   const lockPostman = () => {
-    const name = (postmanLocked ? postman : nameDraft).trim();
+    if (postmanLocked) return;
+    const name = nameDraft.trim();
     if (!name) return;
     setPostman(name);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(POSTMAN_KEY, name);
     }
     setPostmanLocked(true);
+    // Auto-open mic immediately after name is saved so the demo flows
+    // without a dead pause. Small delay lets React re-render first (mic
+    // button must be enabled before start() is called).
+    if (voiceSupported) {
+      setTimeout(() => startVoice(), 80);
+    }
   };
 
   const unlockPostman = () => {
@@ -227,72 +415,76 @@ export default function PostmanForm() {
   };
 
   // ── Voice
+  // Lang priority: en-IN (works on all Indian iPhones) → en-US fallback.
+  // hi-IN requires the user to have Hindi Dictation enabled in iOS Settings
+  // and silently fails on most iPhones — avoided as primary.
+  // en-IN first: romanizes Hinglish well on most Indian iPhones.
+  // hi-IN fallback: pure Devanagari output — client extractor handles it.
+  // en-US last resort for venues where en-IN is unsupported.
+  const VOICE_LANGS = ["en-IN", "hi-IN", "en-US"] as const;
+
   const startVoice = () => {
     const Ctor = getSpeechRecognitionCtor();
     if (!Ctor) return;
 
+    // Always abort the previous instance before creating a new one.
+    // On iOS, reusing or starting a second session without aborting the first
+    // causes the second tap to silently fail (onstart fires, onend fires immediately).
+    try { recognitionRef.current?.abort(); } catch { /* no-op */ }
+    recognitionRef.current = null;
+
     setVoiceError("");
     setVoiceTranscript("");
     setVoiceApiError("");
+    setShowPermTip(false);
     gotResultRef.current = false;
 
+    const lang = VOICE_LANGS[Math.min(langAttemptRef.current, VOICE_LANGS.length - 1)];
+
     const rec = new Ctor();
-    rec.lang = "hi-IN";
+    rec.lang = lang;
     rec.continuous = false;
     rec.interimResults = false;
 
-    rec.onstart = () => setVoiceState("listening");
+    rec.onstart = () => {
+      // Clear previous attempt's detections so stale state never bleeds
+      // into a new recording (e.g. user re-taps mic after a partial result).
+      setNeeds([]);
+      setSeverity(null);
+      setSafeZoneReport(false);
+      setVoiceState("listening");
+    };
 
     rec.onresult = async (e: SpeechResultEvent) => {
       gotResultRef.current = true;
+      langAttemptRef.current = 0;
       const transcript = e.results?.[0]?.[0]?.transcript ?? "";
-      setVoiceTranscript(transcript);
-      setVoiceState("processing");
-      try {
-        const res = await fetch("/api/voice-extract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript }),
-        });
-        const data = (await res.json().catch(() => ({}))) as {
-          needs?: unknown;
-          severity?: unknown;
-        };
-        if (Array.isArray(data.needs)) {
-          const valid = data.needs
-            .map((n) => String(n).toLowerCase())
-            .filter((n): n is Need =>
-              ["food", "medicine", "cash", "evacuation"].includes(n)
-            );
-          if (valid.length > 0) setNeeds(valid);
-        }
-        const serverSeverity =
-          data.severity === "critical" || data.severity === "medium"
-            ? data.severity
-            : null;
-        if (serverSeverity) {
-          setSeverity(
-            serverSeverity === "medium" && transcriptIsCritical(transcript)
-              ? "critical"
-              : serverSeverity
-          );
-        } else if (transcriptIsCritical(transcript)) {
-          setSeverity("critical");
-        }
-        setVoiceState("idle");
-      } catch (err) {
-        console.warn("Voice extract failed:", err);
-        setVoiceState("idle");
-        setVoiceApiError("Voice unavailable, please select needs manually");
-      }
+      await processTranscript(transcript);
     };
 
     rec.onerror = (e: SpeechErrorEvent) => {
-      setVoiceState("error");
       const code = e.error;
-      if (code === "no-speech") setVoiceError("Didn't hear anything.");
-      else if (code === "not-allowed") setVoiceError("Mic permission denied.");
-      else setVoiceError("Voice error.");
+      if (code === "language-not-supported") {
+        // Advance to next fallback lang; user taps mic again
+        langAttemptRef.current = Math.min(
+          langAttemptRef.current + 1,
+          VOICE_LANGS.length - 1
+        );
+        setVoiceState("idle");
+        setVoiceError("Tap mic again to retry.");
+        return;
+      }
+      setVoiceState("error");
+      if (code === "no-speech") {
+        setVoiceError("Didn't hear anything — tap mic and speak.");
+      } else if (code === "not-allowed") {
+        // iOS: permission dialog appears AFTER start() fires onend.
+        // User must allow mic in the prompt, then tap the button again.
+        setShowPermTip(true);
+        setVoiceError("Allow mic access, then tap 🎤 again.");
+      } else {
+        setVoiceError("Voice error — tap mic to retry.");
+      }
     };
 
     rec.onend = () => {
@@ -307,7 +499,7 @@ export default function PostmanForm() {
     } catch (err) {
       console.warn("Could not start recognition:", err);
       setVoiceState("error");
-      setVoiceError("Mic unavailable.");
+      setVoiceError("Mic unavailable — tap to retry.");
     }
   };
 
@@ -316,33 +508,128 @@ export default function PostmanForm() {
     setVoiceState("idle");
   };
 
-  // ── Form
-  const toggleNeed = (n: Need) => {
-    setNeeds((prev) =>
-      prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n]
-    );
+  // Shared pipeline — runs for both real voice and the type-shortcut path.
+  const processTranscript = async (transcript: string) => {
+    setVoiceTranscript(transcript);
+    setNeeds([]);
+    setSeverity(null);
+    setSafeZoneReport(false);
+    setVoiceError("");
+    setVoiceApiError("");
+    setShowPermTip(false);
+    setVoiceState("processing");
+    try {
+      const res = await fetch("/api/voice-extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transcript }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        needs?: unknown;
+        severity?: unknown;
+      };
+      let nextNeeds: Need[] = [];
+      if (Array.isArray(data.needs)) {
+        const valid = data.needs
+          .map((n) => String(n).toLowerCase())
+          .filter((n): n is Need =>
+            ["food", "medicine", "cash", "evacuation"].includes(n)
+          );
+        nextNeeds = valid.length > 0 ? valid : clientExtractNeeds(transcript);
+      } else {
+        nextNeeds = clientExtractNeeds(transcript);
+      }
+      setNeeds(nextNeeds);
+      const serverCritical = data.severity === "critical";
+      let nextSeverity: Severity | null = null;
+      if (serverCritical || transcriptIsCritical(transcript)) {
+        nextSeverity = "critical";
+      } else if (nextNeeds.length > 0) {
+        nextSeverity = "medium";
+      }
+      if (transcriptIndicatesSafeZone(transcript)) {
+        setSafeZoneReport(true);
+        if (!serverCritical && !transcriptIsCritical(transcript)) nextSeverity = "medium";
+      }
+      setSeverity(nextSeverity);
+      setShowTypeInput(false);
+      setTypeDraft("");
+      setVoiceState("idle");
+    } catch {
+      setVoiceState("idle");
+      setVoiceApiError("Extract failed — select needs manually on next screen");
+    }
   };
 
-  const pickZone = (id: string) => {
-    setZoneId(id);
-    setSubmitError("");
+  // ── Form
+  const toggleNeed = (n: Need) => {
+    setNeeds((prev) => {
+      const next = prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n];
+      // Auto-set severity to medium when the first need is tapped so the user
+      // never hits the "select urgency" guard after manually picking needs.
+      // They can still upgrade to critical by tapping the severity button.
+      if (next.length > 0 && severity === null) setSeverity("medium");
+      // Clear severity when all needs are removed (clean slate).
+      if (next.length === 0 && !safeZoneReport) setSeverity(null);
+      return next;
+    });
   };
 
   // ── Submit
   const handleSubmit = async (e?: FormEvent) => {
     e?.preventDefault();
     setSubmitError("");
-    if (!canSubmit) return;
 
-    if (!selectedZone) return;
+    // Recompute guards using local variables — never rely on the async closure
+    // capturing stale React state (especially after lockPostman() setState calls).
+    const nameToUse = postman.trim() || nameDraft.trim();
+    if (!nameToUse) {
+      setSubmitError("Enter your name to continue.");
+      return;
+    }
+    if (gpsStatus === "locating") {
+      setSubmitError("Getting your location… please wait a moment.");
+      return;
+    }
+    if (!routeBlocked) {
+      const effectiveSafeDraft =
+        safeZoneReport || transcriptIndicatesSafeZone(voiceTranscript);
+      if (
+        (needs.length === 0 && !effectiveSafeDraft) ||
+        (severity === null && !effectiveSafeDraft)
+      ) {
+        setSubmitError("Select what is needed and urgency level.");
+        return;
+      }
+    }
 
-    const { digipin, lat, lng } = safeEncode(selectedZone.lat, selectedZone.lng);
-    const zoneName = `${selectedZone.label}, ${selectedZone.district}`;
+    // Persist the name to localStorage if not already locked
+    if (!postmanLocked && nameToUse) lockPostman();
 
-    const submittedNeeds: string[] = routeBlocked ? ["blocked"] : needs;
+    // Use GPS coordinates; fall back to demo centre if GPS failed
+    const lat  = gpsLat  ?? FALLBACK_LAT;
+    const lng  = gpsLng  ?? FALLBACK_LNG;
+    const { digipin } = safeEncode(lat, lng);
+    const zoneName = gpsDigipin ? `GPS · ${gpsDigipin}` : "Field Location";
+    const district = inferKeralaDistrict(lat, lng);
+
+    const effectiveSafe =
+      !routeBlocked &&
+      (safeZoneReport || transcriptIndicatesSafeZone(voiceTranscript));
+
+    const submittedNeeds: string[] = routeBlocked
+      ? ["blocked"]
+      : needs.length > 0
+        ? [...needs]
+        : effectiveSafe
+          ? ["other"]
+          : [];
+
     const submittedSeverity: Severity = routeBlocked
       ? "critical"
-      : (severity as Severity);
+      : effectiveSafe && !transcriptIsCritical(voiceTranscript)
+        ? "medium"
+        : (severity as Severity);
 
     setSubmitting(true);
     try {
@@ -350,15 +637,16 @@ export default function PostmanForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          postman: postman.trim(),
+          postman: nameToUse,
           digipin,
           lat,
           lng,
           needs: submittedNeeds,
           severity: submittedSeverity,
           blocked: routeBlocked,
+          safeZone: effectiveSafe,
           timestamp: new Date().toISOString(),
-          photoFlag: false,
+          photoFlag: photoDataUrl !== null,
         }),
       });
       if (!res.ok) {
@@ -366,12 +654,14 @@ export default function PostmanForm() {
         throw new Error(data?.error || `Submit failed (${res.status})`);
       }
       setConfirmation({
-        zone: selectedZone,
         zoneName,
+        district,
         needs: routeBlocked ? [] : needs,
         severity: submittedSeverity,
         digipin,
         blocked: routeBlocked,
+        photoFileName: photoFileName ?? null,
+        safeZone: effectiveSafe,
       });
       setScreen(3);
     } catch (err) {
@@ -385,16 +675,29 @@ export default function PostmanForm() {
   };
 
   const handleStartOver = () => {
+    try { recognitionRef.current?.abort(); } catch { /* no-op */ }
     setNeeds([]);
     setSeverity(null);
-    setZoneId(null);
     setRouteBlocked(false);
+    setGpsStatus("idle");
+    setGpsLat(null);
+    setGpsLng(null);
+    setGpsDigipin(null);
+    setVoiceState("idle");
     setVoiceTranscript("");
     setVoiceError("");
     setVoiceApiError("");
+    setShowPermTip(false);
+    setPhotoDataUrl(null);
+    setPhotoFileName(null);
     setSubmitError("");
     setConfirmation(null);
     setEditOpen(false);
+    setSafeZoneReport(false);
+    setShowTypeInput(false);
+    setTypeDraft("");
+    langAttemptRef.current = 0;
+    gotResultRef.current = false;
     setScreen(voiceSupported ? 1 : 2);
   };
 
@@ -403,6 +706,11 @@ export default function PostmanForm() {
       window.location.href = "/dashboard";
     }
   };
+
+  const voiceInsightScreen1 =
+    screen === 1 && voiceTranscript && voiceState === "idle"
+      ? fieldReadInsight(voiceTranscript, needs, severity)
+      : null;
 
   // ──────────────────────────────────────────────────────────────────────────
   // SCREEN 1 — SPEAK
@@ -506,8 +814,15 @@ export default function PostmanForm() {
             <div className="mt-1 text-xs text-slate-400">
               {voiceState === "listening" ? "Tap to stop" : "Hindi · English · Malayalam"}
             </div>
-            {voiceError && voiceState === "error" && (
+            {(voiceError) && (
               <p className="mt-2 text-xs font-medium text-red-300">{voiceError}</p>
+            )}
+            {showPermTip && (
+              <div className="mt-2 rounded-lg border border-slate-600 bg-slate-800/80 px-3 py-2 text-left text-[11px] text-slate-300">
+                <p className="font-semibold text-white">iPhone mic steps:</p>
+                <p className="mt-0.5">Settings → Safari → Microphone → Allow</p>
+                <p>Then return here and tap 🎤</p>
+              </div>
             )}
             {voiceApiError && (
               <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-200">
@@ -516,8 +831,28 @@ export default function PostmanForm() {
             )}
           </div>
 
+          {/* Proactive demo narrative */}
+          {voiceInsightScreen1 && (
+            <div
+              className={`mt-5 w-full max-w-sm rounded-xl border px-3 py-2.5 text-left text-[11px] leading-snug ${
+                voiceInsightScreen1.tone === "escalate"
+                  ? "border-red-500/50 bg-red-950/40 text-red-100"
+                  : voiceInsightScreen1.tone === "relay"
+                  ? "border-emerald-500/40 bg-emerald-950/30 text-emerald-100"
+                  : voiceInsightScreen1.tone === "safe"
+                  ? "border-lime-500/50 bg-lime-950/35 text-lime-100"
+                  : voiceInsightScreen1.tone === "routine"
+                  ? "border-slate-500/40 bg-slate-800/80 text-slate-200"
+                  : "border-amber-500/35 bg-amber-950/25 text-amber-100"
+              }`}
+            >
+              <span className="font-semibold text-white/90">Sense layer · </span>
+              {voiceInsightScreen1.lines}
+            </div>
+          )}
+
           {/* Voice extraction output chips */}
-          {(needs.length > 0 || severity || voiceTranscript) && (
+          {(needs.length > 0 || severity || voiceTranscript || safeZoneReport) && (
             <div className="mt-6 w-full max-w-xs space-y-3">
               {needs.length > 0 && (
                 <div className="flex flex-wrap justify-center gap-1.5">
@@ -531,6 +866,13 @@ export default function PostmanForm() {
                   ))}
                 </div>
               )}
+              {safeZoneReport && (
+                <div className="flex justify-center">
+                  <span className="inline-flex items-center rounded-full border border-lime-400/70 bg-lime-500/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-lime-100">
+                    🟢 Safe / green pocket → lime on map
+                  </span>
+                </div>
+              )}
               {severity && (
                 <div className="flex justify-center">
                   <span
@@ -540,7 +882,7 @@ export default function PostmanForm() {
                         : "border-amber-400/60 bg-amber-500/20 text-amber-100"
                     }`}
                   >
-                    {severity === "critical" ? "🔴 Critical" : "⚠️ Not urgent"}
+                    {severity === "critical" ? "🔴 Critical" : "📋 Standard relay"}
                   </span>
                 </div>
               )}
@@ -561,27 +903,62 @@ export default function PostmanForm() {
           <button
             type="button"
             onClick={() => {
+              try { recognitionRef.current?.abort(); } catch { /* no-op */ }
               if (!postmanLocked) lockPostman();
               setScreen(2);
             }}
-            disabled={continueDisabled}
+            disabled={continueDisabled || voiceState === "processing"}
             style={{ WebkitTapHighlightColor: "transparent" }}
             className="w-full touch-manipulation rounded-xl bg-red-600 px-4 py-4 text-base font-bold text-white shadow-lg transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            आगे बढ़ें → / Continue
+            {voiceState === "processing" ? "समझ रहे हैं… / Processing…" : "आगे बढ़ें → / Continue"}
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (!postmanLocked && nameDraft.trim()) lockPostman();
-              setScreen(2);
-            }}
+            onClick={() => setShowTypeInput((v) => !v)}
             style={{ WebkitTapHighlightColor: "transparent" }}
             className="block w-full touch-manipulation text-center text-sm font-medium text-slate-400 underline-offset-2 active:text-slate-200"
           >
-            No mic? Type instead →
+            माइक नहीं? यहाँ लिखें →
           </button>
+
+          {showTypeInput && (
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                inputMode="text"
+                placeholder="e.g. yahan baadh hain, khana chahiye"
+                value={typeDraft}
+                onChange={(e) => setTypeDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && typeDraft.trim() && voiceState !== "processing") {
+                    void processTranscript(typeDraft.trim());
+                    setTypeDraft("");
+                  }
+                }}
+                disabled={voiceState === "processing"}
+                className="flex-1 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/40 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                disabled={!typeDraft.trim() || voiceState === "processing"}
+                onClick={() => {
+                  if (typeDraft.trim()) {
+                    void processTranscript(typeDraft.trim());
+                    setTypeDraft("");
+                  }
+                }}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className="shrink-0 touch-manipulation rounded-xl bg-red-600 px-4 py-2.5 text-sm font-bold text-white active:bg-red-700 disabled:opacity-40"
+              >
+                {voiceState === "processing"
+                  ? <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  : "→"}
+              </button>
+            </div>
+          )}
         </div>
+
       </div>
     );
   }
@@ -622,6 +999,11 @@ export default function PostmanForm() {
               <div className="text-sm font-semibold text-slate-900">
                 📍 {confirmation.zoneName}
               </div>
+              {confirmation.district && (
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {confirmation.district} District
+                </div>
+              )}
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
@@ -630,6 +1012,10 @@ export default function PostmanForm() {
                 {confirmation.blocked ? (
                   <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-amber-700">
                     🚫 Route blocked
+                  </span>
+                ) : confirmation.safeZone && confirmation.needs.length === 0 ? (
+                  <span className="inline-flex items-center rounded-full border border-lime-400 bg-lime-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-lime-900">
+                    Safe / green pocket
                   </span>
                 ) : confirmation.needs.length === 0 ? (
                   <span className="text-[11px] text-slate-400">—</span>
@@ -653,10 +1039,16 @@ export default function PostmanForm() {
                   className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
                     confirmation.severity === "critical"
                       ? "border-red-300 bg-red-50 text-red-700"
+                      : confirmation.safeZone
+                      ? "border-lime-300 bg-lime-50 text-lime-900"
                       : "border-amber-300 bg-amber-50 text-amber-700"
                   }`}
                 >
-                  {confirmation.severity === "critical" ? "Critical" : "Not urgent"}
+                  {confirmation.severity === "critical"
+                    ? "Critical"
+                    : confirmation.safeZone
+                    ? "Medium · routing intel"
+                    : "Standard relay"}
                 </span>
               </div>
 
@@ -668,6 +1060,28 @@ export default function PostmanForm() {
                   {confirmation.digipin}
                 </span>
               </div>
+
+              {photoDataUrl && (
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Photo
+                  </span>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={photoDataUrl}
+                    alt="Field photo"
+                    className="h-10 w-10 rounded-lg object-cover shadow"
+                  />
+                  <div className="flex flex-col">
+                    <span className="text-[11px] font-semibold text-emerald-700">✓ Attached</span>
+                    {confirmation.photoFileName && (
+                      <span className="max-w-[160px] truncate text-[10px] text-slate-400">
+                        {confirmation.photoFileName}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
           </div>
@@ -699,15 +1113,52 @@ export default function PostmanForm() {
   // ──────────────────────────────────────────────────────────────────────────
   // SCREEN 2 — WHERE + WHAT
   // ──────────────────────────────────────────────────────────────────────────
-  const grouped: Record<"Thrissur" | "Ernakulam", Zone[]> = {
-    Thrissur: ZONES.filter((z) => z.district === "Thrissur"),
-    Ernakulam: ZONES.filter((z) => z.district === "Ernakulam"),
-  };
+  // GPS location card — shown in place of zone picker in both voice and manual modes
+  const GpsCard = (
+    <section>
+      <p className="mb-2 text-sm font-bold text-slate-800">📍 आपकी लोकेशन / Your Location</p>
+      {gpsStatus === "locating" && (
+        <div className="flex items-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-4">
+          <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+          <span className="text-sm font-medium text-blue-700">Location मिल रही है…</span>
+        </div>
+      )}
+      {gpsStatus === "done" && gpsDigipin && (
+        <div className="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">✅</span>
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-emerald-600">DigiPin</div>
+              <div className="font-mono text-xl font-black tracking-widest text-emerald-800">{gpsDigipin}</div>
+            </div>
+          </div>
+          <div className="mt-1.5 text-[10px] text-emerald-600">
+            {gpsLat?.toFixed(4)}°N, {gpsLng?.toFixed(4)}°E · accurate to ~4 m
+          </div>
+        </div>
+      )}
+      {gpsStatus === "error" && (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          ⚠ Location नहीं मिली — demo location use होगी.
+        </div>
+      )}
+    </section>
+  );
 
   // True when voice already captured needs/severity on Screen 1.
   // In this mode Screen 2 shows a compact summary + zone as the hero,
   // collapsing the full need buttons unless the postman taps "Edit".
-  const voicePrefilled = (needs.length > 0 || severity !== null) && !routeBlocked;
+  const voicePrefilled =
+    (needs.length > 0 || severity !== null || safeZoneReport) && !routeBlocked;
+  // If voice only set severity (no needs captured), force edit mode open so
+  // the postman must pick at least one need before submit becomes active.
+  // Safe / green-pocket phrases submit with meta need "other" — skip this trap.
+  const needsNeedSelection =
+    voicePrefilled &&
+    needs.length === 0 &&
+    !routeBlocked &&
+    !safeZoneReport &&
+    !transcriptIndicatesSafeZone(voiceTranscript);
 
   return (
     <div
@@ -773,16 +1224,10 @@ export default function PostmanForm() {
           </div>
         )}
 
-        {submitError && (
-          <div className="mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm font-medium text-red-800">
-            ⚠ {submitError}
-          </div>
-        )}
-
         <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
 
           {/* ── VOICE-PREFILLED MODE: compact summary + zone as hero ── */}
-          {voicePrefilled && !editOpen ? (
+          {voicePrefilled && !editOpen && !needsNeedSelection ? (
             <>
               {/* Voice summary card */}
               <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -806,7 +1251,7 @@ export default function PostmanForm() {
                       ))}
                       {needs.length === 0 && (
                         <span className="text-xs text-emerald-600">
-                          No needs — tap Edit to add
+                          {safeZoneReport ? "🟢 Safe pocket — no relief ask" : "No needs — tap Edit to add"}
                         </span>
                       )}
                     </div>
@@ -834,50 +1279,7 @@ export default function PostmanForm() {
                 </div>
               </section>
 
-              {/* Zone picker — HERO in voice mode */}
-              <section>
-                <p className="mb-2 text-sm font-bold text-slate-800">
-                  📍 अपना इलाका चुनें
-                </p>
-                <p className="mb-3 text-[11px] text-slate-500">
-                  Select your area — tap once to confirm
-                </p>
-                {(["Thrissur", "Ernakulam"] as const).map((district) => (
-                  <div key={district} className="mt-2">
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
-                      {district}
-                    </p>
-                    <div className="space-y-1.5">
-                      {grouped[district].map((zone) => {
-                        const active = zoneId === zone.id;
-                        return (
-                          <button
-                            key={zone.id}
-                            type="button"
-                            onClick={() => pickZone(zone.id)}
-                            aria-pressed={active}
-                            style={{ WebkitTapHighlightColor: "transparent" }}
-                            className={`flex min-h-[56px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
-                              active
-                                ? "border-red-600 bg-red-50"
-                                : "border-slate-200 bg-white active:bg-red-50"
-                            }`}
-                          >
-                            <span className={`text-base font-bold ${active ? "text-red-700" : "text-slate-900"}`}>
-                              {zone.label}
-                            </span>
-                            {active ? (
-                              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-red-600 text-white text-sm font-bold">✓</span>
-                            ) : (
-                              <span className="h-7 w-7 rounded-full border-2 border-slate-200" aria-hidden />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </section>
+              {GpsCard}
             </>
           ) : (
             <>
@@ -965,43 +1367,7 @@ export default function PostmanForm() {
                 </div>
               </section>
 
-              {/* Zone picker */}
-              <section>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  अपना इलाका चुनें / Select your area
-                </p>
-                {(["Thrissur", "Ernakulam"] as const).map((district) => (
-                  <div key={district} className="mt-2">
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">
-                      {district}
-                    </p>
-                    <div className="space-y-1.5">
-                      {grouped[district].map((zone) => {
-                        const active = zoneId === zone.id;
-                        return (
-                          <button
-                            key={zone.id}
-                            type="button"
-                            onClick={() => pickZone(zone.id)}
-                            aria-pressed={active}
-                            style={{ WebkitTapHighlightColor: "transparent" }}
-                            className={`flex min-h-[52px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 text-left transition-colors ${
-                              active
-                                ? "border-red-600 bg-red-50"
-                                : "border-slate-200 bg-white active:bg-slate-50"
-                            }`}
-                          >
-                            <span className={`text-sm font-semibold ${active ? "text-red-700" : "text-slate-900"}`}>
-                              {zone.label}
-                            </span>
-                            {active && <span className="text-base text-red-600" aria-hidden>✓</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </section>
+              {GpsCard}
             </>
           )}
 
@@ -1011,7 +1377,13 @@ export default function PostmanForm() {
               type="button"
               role="switch"
               aria-checked={routeBlocked}
-              onClick={() => setRouteBlocked((v) => !v)}
+              onClick={() =>
+                setRouteBlocked((v) => {
+                  const next = !v;
+                  if (next) setSafeZoneReport(false);
+                  return next;
+                })
+              }
               style={{ WebkitTapHighlightColor: "transparent" }}
               className={`flex min-h-[56px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors ${
                 routeBlocked
@@ -1046,11 +1418,123 @@ export default function PostmanForm() {
             )}
           </section>
 
-          {/* Submit */}
+          {/* Safe / green pocket — demo (or if voice missed, toggle here) */}
+          <section>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={safeZoneReport}
+              disabled={routeBlocked}
+              onClick={() => {
+                setSafeZoneReport((v) => {
+                  const next = !v;
+                  if (next && severity === null && !routeBlocked) setSeverity("medium");
+                  if (!next && needs.length === 0) setSeverity(null);
+                  return next;
+                });
+              }}
+              style={{ WebkitTapHighlightColor: "transparent" }}
+              className={`flex min-h-[56px] w-full touch-manipulation items-center justify-between gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                safeZoneReport
+                  ? "border-lime-500 bg-lime-50"
+                  : "border-slate-200 bg-white active:bg-slate-50"
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xl">🟢</span>
+                <div>
+                  <div className="text-sm font-bold text-slate-900">Safe / green pocket</div>
+                  <div className="text-[11px] text-slate-500">
+                    सुरक्षित इलाका — lime dot on SDMA map
+                  </div>
+                </div>
+              </div>
+              <span
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                  safeZoneReport ? "bg-lime-500" : "bg-slate-300"
+                }`}
+                aria-hidden="true"
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+                    safeZoneReport ? "translate-x-5" : "translate-x-0.5"
+                  }`}
+                />
+              </span>
+            </button>
+          </section>
+
+          {/* Photo capture */}
+          <section>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setPhotoFileName(file.name);
+                const reader = new FileReader();
+                reader.onload = () => {
+                  if (typeof reader.result === "string") {
+                    setPhotoDataUrl(reader.result);
+                  }
+                };
+                reader.readAsDataURL(file);
+              }}
+            />
+            {photoDataUrl ? (
+              <div className="flex items-center gap-3 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoDataUrl}
+                  alt="Captured photo"
+                  className="h-14 w-14 rounded-lg object-cover shadow"
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-emerald-800">📸 फ़ोटो मिल गई</p>
+                  <p className="text-[11px] text-emerald-600">Photo attached to report</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setPhotoDataUrl(null); setPhotoFileName(null); if (photoInputRef.current) photoInputRef.current.value = ""; }}
+                  style={{ WebkitTapHighlightColor: "transparent" }}
+                  className="touch-manipulation text-xs font-semibold text-slate-400 active:text-red-500"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                style={{ WebkitTapHighlightColor: "transparent" }}
+                className="flex min-h-[56px] w-full touch-manipulation items-center gap-3 rounded-xl border-2 border-dashed border-slate-300 bg-white px-4 py-3 text-left active:bg-slate-50"
+              >
+                <span className="text-2xl">📷</span>
+                <div>
+                  <div className="text-sm font-bold text-slate-700">फ़ोटो लें / Take Photo</div>
+                  <div className="text-[11px] text-slate-400">Optional — attach flood situation photo</div>
+                </div>
+              </button>
+            )}
+          </section>
+
+          {/* Submit error — shown when user taps Submit with incomplete form */}
+          {submitError && !submitting && (
+            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm font-medium text-red-700">
+              ⚠ {submitError}
+            </p>
+          )}
+
+          {/* Submit — always enabled so Safari/mobile never silently blocks the tap;
+              validation runs inside handleSubmit and surfaces via submitError */}
           <button
             type="button"
             onClick={() => void handleSubmit()}
-            disabled={!canSubmit || submitting}
+            disabled={submitting}
             style={{ WebkitTapHighlightColor: "transparent" }}
             className="flex min-h-[56px] w-full touch-manipulation items-center justify-center rounded-xl bg-red-600 px-4 text-base font-bold text-white shadow-md transition-opacity active:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
           >

@@ -10,15 +10,19 @@ type Severity = "medium" | "critical";
 
 type ExtractResult = {
   needs: Need[];
-  severity: Severity;
+  /** null = routine / no relief ask / no danger — not "medium urgency" */
+  severity: Severity | null;
   location_hint: string;
 };
 
-const PROMPT_TEMPLATE = `You are a disaster field report parser.
-Extract ONLY these three things from the postman voice input:
-1. needs: array containing any of [food, medicine, cash, evacuation]
-2. severity: one of [medium, critical]
-3. location_hint: any place name mentioned (string, can be empty string)
+const PROMPT_TEMPLATE = `You are a disaster field report parser for India Post field postmen.
+Extract ONLY these three things from the voice input:
+1. needs: array from [food, medicine, cash, evacuation] — empty [] if they only describe a normal/safe situation or there is no concrete relief ask.
+2. severity:
+   - "critical" only if life-threatening / stuck / drowning / major damage / must evacuate NOW.
+   - "medium" only if there is at least one need in (1) but situation is not life-critical.
+   - null (JSON null, not string) if needs is empty and the situation sounds routine, calm, or "all good" — do NOT use "medium" as a default.
+3. location_hint: place name if any (string, can be "")
 Return ONLY valid JSON. No explanation. No markdown.
 Voice input: {transcript}`;
 
@@ -35,7 +39,9 @@ const NEED_KEYWORDS: Record<Need, string[]> = {
 const CRITICAL_SIGNALS = [
   "evacuation", "evacuate", "trapped", "phanse", "fasaye", "fase", "rescue", "stranded",
   "lives at risk", "act now", "immediately", "urgent", "emergency",
-  "paani", "pani", "flood", "drowning", "drown", "bachao", "bachaao", "khatra", "danger", "dying", "jaan",
+  // flood/water distress — require more specific forms to avoid "pani pi lo" etc.
+  "baadh", "flood", "drowning", "drown", "pani bhar", "paani bhar",
+  "bachao", "bachaao", "khatra", "danger", "dying",
 ];
 
 function heuristicExtract(transcript: string): ExtractResult {
@@ -60,7 +66,7 @@ function heuristicExtract(transcript: string): ExtractResult {
 
   return {
     needs: Array.from(new Set(needs)),
-    severity: isCritical ? "critical" : "medium",
+    severity: isCritical ? "critical" : needs.length > 0 ? "medium" : null,
     location_hint: locationHint,
   };
 }
@@ -94,12 +100,18 @@ function normalise(raw: Partial<ExtractResult>): ExtractResult {
     .map((n) => String(n).toLowerCase())
     .filter((n): n is Need => (VALID_NEEDS as readonly string[]).includes(n));
 
-  const severity: Severity = raw.severity === "critical" ? "critical" : "medium";
+  const uniqNeeds = Array.from(new Set(needs));
+  // Never label "medium urgency" when the model returned no needs (model habit).
+  let severity: Severity | null = null;
+  if (raw.severity === "critical") severity = "critical";
+  else if (uniqNeeds.length > 0) severity = "medium";
+  else severity = null;
+
   const locationHint =
     typeof raw.location_hint === "string" ? raw.location_hint.trim() : "";
 
   return {
-    needs: Array.from(new Set(needs)),
+    needs: uniqNeeds,
     severity,
     location_hint: locationHint,
   };

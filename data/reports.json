@@ -189,17 +189,27 @@
   },
   {
     "id": 16,
-    "postman": "Ankit",
-    "digipin": "39J-7MF-J38F",
-    "lat": 28.688643,
-    "lng": 77.45801,
+    "postman": "Ankit N",
+    "digipin": "4F4-AA3-33G1",
+    "lat": 9.976,
+    "lng": 76.295,
     "needs": [
       "food",
-      "medicine",
-      "cash"
+      "medicine"
     ],
     "severity": "critical",
-    "district": "Other",
+    "district": "Ernakulam",
     "photoFlag": false
+  },
+  {
+    "id": 17,
+    "postman": "Sunil V",
+    "digipin": "4F4-AC1-55N2",
+    "lat": 10.031,
+    "lng": 76.362,
+    "needs": ["other"],
+    "severity": "medium",
+    "district": "Ernakulam",
+    "safeZone": true
   }
 ]
