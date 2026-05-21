@@ -559,19 +559,15 @@ export default function PostmanForm() {
       } else if (nextNeeds.length > 0) {
         nextSeverity = "medium";
       }
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:processTranscript',message:'severity decision point',data:{transcript,serverCritical,clientCritical,isSafeZone,nextSeverityBeforeOverride:nextSeverity,serverRawSeverity:data.severity,needsLength:nextNeeds.length},timestamp:Date.now(),hypothesisId:'A-B-C'})}).catch(()=>{});
-      // #endregion
       if (isSafeZone) {
         setSafeZoneReport(true);
-        // Safe zone always overrides severity to medium — postman explicitly
-        // saying "safe/surakshit" beats any substring critical match (e.g.
-        // "not flooded" contains "flood" but the postman is asserting safety).
+        // Safe zone overrides both severity and needs — postman explicitly
+        // saying "theek hai / surakshit / floods nahin aaye" means no emergency.
+        // Any needs Bedrock extracted from disaster keywords are false positives.
         nextSeverity = "medium";
+        nextNeeds = [];
+        setNeeds([]);
       }
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:processTranscript',message:'final severity set (post-fix)',data:{finalSeverity:nextSeverity,isSafeZone,runId:'post-fix-2'},timestamp:Date.now(),hypothesisId:'A-B-C'})}).catch(()=>{});
-      // #endregion
       setSeverity(nextSeverity);
       setShowTypeInput(false);
       setTypeDraft("");
@@ -732,12 +728,6 @@ export default function PostmanForm() {
     screen === 1 && voiceTranscript && voiceState === "idle"
       ? fieldReadInsight(voiceTranscript, needs, severity)
       : null;
-  // #region agent log
-  if (screen === 1 && voiceTranscript && voiceState === "idle" && voiceInsightScreen1) {
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:fieldReadInsight',message:'insight computed',data:{tone:voiceInsightScreen1.tone,severity,safeZoneReport,voiceTranscript},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
-  }
-  // #endregion
-
   // ──────────────────────────────────────────────────────────────────────────
   // SCREEN 1 — SPEAK
   // ──────────────────────────────────────────────────────────────────────────
