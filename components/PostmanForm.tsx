@@ -220,6 +220,16 @@ function transcriptIndicatesSafeZone(t: string): boolean {
   }
   if (/\bsafe\b/i.test(t) && !/\bunsafe\b/i.test(t)) return true;
   if (/\bsecure\b/i.test(t) && !/\binsecure\b/i.test(t)) return true;
+
+  // "theek hai / theek hain / sab theek" — common Hindi for "all is fine/okay"
+  if (lower.includes("theek") || lower.includes("thik") || lower.includes("sabkuch theek")) return true;
+
+  // Negation + flood/disaster = safe signal
+  // "floods nahin aaye", "flood nahi hai", "not flooded", "no flood"
+  const hasFloodWord = /flood/i.test(t) || lower.includes("baadh");
+  const hasNegation = /\b(nahin|nahi|nhi|naheen|mat|not|no)\b/i.test(t);
+  if (hasFloodWord && hasNegation) return true;
+
   return false;
 }
 
@@ -541,16 +551,27 @@ export default function PostmanForm() {
       }
       setNeeds(nextNeeds);
       const serverCritical = data.severity === "critical";
+      const clientCritical = transcriptIsCritical(transcript);
+      const isSafeZone = transcriptIndicatesSafeZone(transcript);
       let nextSeverity: Severity | null = null;
-      if (serverCritical || transcriptIsCritical(transcript)) {
+      if (serverCritical || clientCritical) {
         nextSeverity = "critical";
       } else if (nextNeeds.length > 0) {
         nextSeverity = "medium";
       }
-      if (transcriptIndicatesSafeZone(transcript)) {
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:processTranscript',message:'severity decision point',data:{transcript,serverCritical,clientCritical,isSafeZone,nextSeverityBeforeOverride:nextSeverity,serverRawSeverity:data.severity,needsLength:nextNeeds.length},timestamp:Date.now(),hypothesisId:'A-B-C'})}).catch(()=>{});
+      // #endregion
+      if (isSafeZone) {
         setSafeZoneReport(true);
-        if (!serverCritical && !transcriptIsCritical(transcript)) nextSeverity = "medium";
+        // Safe zone always overrides severity to medium — postman explicitly
+        // saying "safe/surakshit" beats any substring critical match (e.g.
+        // "not flooded" contains "flood" but the postman is asserting safety).
+        nextSeverity = "medium";
       }
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:processTranscript',message:'final severity set (post-fix)',data:{finalSeverity:nextSeverity,isSafeZone,runId:'post-fix-2'},timestamp:Date.now(),hypothesisId:'A-B-C'})}).catch(()=>{});
+      // #endregion
       setSeverity(nextSeverity);
       setShowTypeInput(false);
       setTypeDraft("");
@@ -711,6 +732,11 @@ export default function PostmanForm() {
     screen === 1 && voiceTranscript && voiceState === "idle"
       ? fieldReadInsight(voiceTranscript, needs, severity)
       : null;
+  // #region agent log
+  if (screen === 1 && voiceTranscript && voiceState === "idle" && voiceInsightScreen1) {
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sessionId:'1ec22d',location:'PostmanForm.tsx:fieldReadInsight',message:'insight computed',data:{tone:voiceInsightScreen1.tone,severity,safeZoneReport,voiceTranscript},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+  }
+  // #endregion
 
   // ──────────────────────────────────────────────────────────────────────────
   // SCREEN 1 — SPEAK
