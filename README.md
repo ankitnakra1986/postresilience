@@ -13,7 +13,6 @@ Partnership: **India Post + AWS + Ankit Nakra (AI Product)**
 
 The demo is structured in 5 parts — each maps to a section of the architecture diagram below.
 
-▶ **[Watch Demo Walkthrough](#)** ← video coming soon
 
 ---
 
