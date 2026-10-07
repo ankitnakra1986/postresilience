@@ -1,9 +1,9 @@
 # PostResilience
 
-> **Voice-first AI agent that activates India Post's 156,000 postmen as a real-time disaster sensing network.**
+> **A voice-first AI prototype exploring how postal staff could act as a real-time disaster reporting network.**
 
-Built at the **UPU 4th Innovation Challenge** · RAKNPA Ghaziabad · May 7–8, 2026  
-Partnership: **India Post + AWS + Ankit Nakra (AI Product)**
+Hackathon prototype built at an AWS-sponsored event, May 2026.  
+Invited to submit a funding proposal to the UPU Innovation Challenge 2026 (in progress).
 
 🌐 **[Live Demo →](https://postresilience.vercel.app)**
 
@@ -26,9 +26,9 @@ Start here. The architecture diagram shows 4 boxes — each box is one part of t
 ### Part 2 — Postman Mobile UI
 *Architecture box: Postman Mobile UI (top-left)*
 
-![Postman voice UI — tap mic, speak in Hindi, English, or Malayalam](public/screenshots/part2-postman-ui.png)
+![Postman voice UI — tap mic, speak in Hindi or English](public/screenshots/part2-postman-ui.png)
 
-Voice-first. Postman taps mic, speaks in Hindi / Hinglish / English / Malayalam. No forms to fill. Fallback: type manually.
+Voice-first. Postman taps mic, speaks in Hindi / Hinglish / English (Malayalam not supported yet). No forms to fill. Fallback: type manually.
 
 ---
 
@@ -55,7 +55,7 @@ Real-time Leaflet map. Colour-coded by severity. Post office status overlay. Cov
 
 ![AI agent panel — Demand Sensing, Capacity Mapping, Service Packaging, SDMA Brief — all DONE](public/screenshots/part5-ai-agent.png)
 
-4 streamed steps: Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief. Generates a prioritised dispatch plan and 5-line situation report. 20 days → 6 hours.
+4 streamed steps: Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief. Generates a prioritised dispatch plan and 5-line situation report. Projected (not measured): 20 days → 6 hours.
 
 ---
 
@@ -73,10 +73,10 @@ Relief was supply-driven, not demand-driven. Help went where it was *accessible*
 
 ## What PostResilience Does
 
-PostResilience turns every postman into a field sensor and every post office into a data node — creating a real-time district-level ground truth map in **under 6 hours**.
+PostResilience turns every postman into a field sensor and every post office into a data node — aiming for a real-time district-level ground truth map in an estimated **6 hours** (projection, not a measured result).
 
 ```
-Postman speaks into phone (voice-first, Hindi/English/Malayalam)
+Postman speaks into phone (voice-first, Hindi/English)
 → AI extracts: need type + severity + location
 → DigiPin geocode (4m × 4m precision, India Post-owned)
 → SDMA live dashboard: RED / ORANGE / GREEN / LIME priority map
@@ -84,7 +84,9 @@ Postman speaks into phone (voice-first, Hindi/English/Malayalam)
 → India Post dispatches: IPPB cash + medicine + food + evacuation flag
 ```
 
-| | Without PostResilience | With PostResilience |
+**Projected impact (estimates, not measured results):**
+
+| | Without PostResilience (Kerala 2018 actuals) | With PostResilience (projected) |
 |---|---|---|
 | Time to district ground truth | 20 days | 6 hours |
 | Experts required | 76 | 500 postmen (already deployed) |
@@ -146,7 +148,7 @@ Postman speaks into phone (voice-first, Hindi/English/Malayalam)
 ## Key Features
 
 ### Voice-First Field Reporting (Screen 1)
-- Postman taps mic, speaks in Hindi / Hinglish / English / Malayalam
+- Postman taps mic, speaks in Hindi / Hinglish / English (Malayalam not supported yet)
 - AI extracts needs (`food`, `medicine`, `cash`, `evacuation`) + severity + location
 - Falls back to heuristic keyword matching if Bedrock is unavailable — **demo never dead-ends**
 - GPS → DigiPin auto-encoding (4m precision)
@@ -161,7 +163,7 @@ Postman speaks into phone (voice-first, Hindi/English/Malayalam)
 
 ### AI Agent Panel (Screen 2)
 - 4 streamed tool calls: Demand Sensing → Capacity Mapping → Service Packaging → SDMA Brief
-- Before/After impact counter
+- Before/After impact counter (projected figures, not measured)
 - Structured 5-line SDMA situation report output
 
 ---
@@ -245,9 +247,9 @@ All mock data uses real Kerala 2018 geography. Sources:
 ## Built By
 
 **Ankit Nakra** — AI Product Leader  
-[LinkedIn](https://linkedin.com/in/ankitnakra) · [GitHub](https://github.com/ankitnakra1986)
+[LinkedIn](https://www.linkedin.com/in/ankitnakra) · [GitHub](https://github.com/ankitnakra1986)
 
-Built with: India Post · AWS · RAKNPA Ghaziabad · UPU 4th Innovation Challenge, May 2026
+Built at an AWS-sponsored hackathon, May 2026. Invited to submit a funding proposal to the UPU Innovation Challenge 2026 (in progress).
 
 ---
 

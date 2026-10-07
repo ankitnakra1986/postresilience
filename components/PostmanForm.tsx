@@ -828,7 +828,7 @@ export default function PostmanForm() {
               {voiceState === "error" && "फिर कोशिश करें / Try again"}
             </div>
             <div className="mt-1 text-xs text-slate-400">
-              {voiceState === "listening" ? "Tap to stop" : "Hindi · English · Malayalam"}
+              {voiceState === "listening" ? "Tap to stop" : "Hindi · English"}
             </div>
             {(voiceError) && (
               <p className="mt-2 text-xs font-medium text-red-300">{voiceError}</p>
