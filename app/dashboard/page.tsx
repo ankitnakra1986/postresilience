@@ -249,7 +249,10 @@ export default function DashboardPage() {
           onPointerUp={onBannerPointerUp}
         >
           <div className="rounded-2xl bg-emerald-600 px-4 py-3 shadow-2xl sm:px-5 sm:py-4">
-            <div className="flex items-baseline gap-2 text-center text-white">
+            <div className="text-center text-[10px] font-semibold uppercase tracking-wide text-emerald-100">
+              Projected
+            </div>
+            <div className="mt-1 flex items-baseline gap-2 text-center text-white">
               <span className="text-xl font-black sm:text-3xl">20 days</span>
               <span className="text-lg font-light text-emerald-200 sm:text-2xl">→</span>
               <span className="text-xl font-black sm:text-3xl">6 hours</span>

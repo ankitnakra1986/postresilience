@@ -294,6 +294,7 @@ function ImpactDashboard({
               <span className="text-sm font-semibold text-red-200 line-through">20 days</span>
               <span className="text-emerald-200">→</span>
               <span className="text-sm font-black text-white">6 hours</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-100">projected</span>
             </div>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-white/10 px-3 py-2">
